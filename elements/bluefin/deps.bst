@@ -4,6 +4,7 @@ depends:
   - gnome-build-meta.bst:gnomeos-deps/deps.bst
 
   - bluefin/gnome-shell-extensions.bst
+  - bluefin/common-configs.bst
 
   - bluefin/brew.bst
 
