@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+NoDisplay=false
+Terminal=false
+Exec=xdg-open https://docs.projectbluefin.io/
+Icon=ublue-docs
+Name=Documentation
+Comment=Bluefin documentation
+Keywords=Bluefin;Help;Docs;Instructions
+Categories=Utility;
