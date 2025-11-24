@@ -1,0 +1,72 @@
+From f34426a10bd36a8bfe1f1282ba8b6a7a525f2436 Mon Sep 17 00:00:00 2001
+From: Valentin David <me@valentindavid.com>
+Date: Fri, 31 Oct 2025 10:28:19 +0100
+Subject: [PATCH 6/6] components/linux: add initial support for fp5
+
+---
+ files/linux/fdsdk-config.sh | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/files/linux/fdsdk-config.sh b/files/linux/fdsdk-config.sh
+index 7b603e488..e882e836a 100644
+--- a/files/linux/fdsdk-config.sh
++++ b/files/linux/fdsdk-config.sh
+@@ -44,6 +44,27 @@ case "$arch" in
+         # Backlight and LED
+         enable BACKLIGHT_CLASS_DEVICE    # Low-level backlight control
+         module LEDS_SGM3140              # SGM3140 LED driver (500mA Buck/Boost Charge Pump)
++
++	# fp5
++	module DRM_PANEL_RAYDIUM_RM692E5
++	enable REGULATOR_QCOM_PM8008
++	module DRM_SIMPLEDRM
++	module BACKLIGHT_QCOM_WLED
++	enable USB_XHCI_SIDEBAND
++	module SND_USB_AUDIO_QMI
++	module SND_SOC_USB
++	module SND_SOC_QDSP6_USB
++
++	# FIXME: Because ARM_SMMU is built-in and will try to proble
++	# the clocks, we need to have them built-in. We should try to
++	# make ARM_SMMU a module instead.	
++	enable QCOM_CLK_RPMH
++	enable SC_CAMCC_7280
++	enable SC_DISPCC_7280
++	enable SC_GPUCC_7280
++	enable SC_LPASS_CORECC_7280
++	enable SC_VIDEOCC_7280
++	enable SC_GCC_7280
+     ;;
+ esac
+ 
+@@ -782,6 +803,7 @@ module TYPEC_NVIDIA_ALTMODE
+ module TYPEC_FUSB302
+ module TYPEC_TCPM
+ module TYPEC_TPS6598X
++module TYPEC_MUX_PTN36502
+ 
+ # USB audio
+ module SND_USB_AUDIO
+@@ -1719,6 +1741,9 @@ case "$arch" in
+         module LPC_SCH
+         module MFD_INTEL_PMC_BXT
+     ;;
++    aarch64)
++        module MFD_QCOM_PM8008
++    ;;
+ esac
+ module MFD_AXP20X_I2C
+ 
+@@ -2540,6 +2565,9 @@ case "$arch" in
+         module LEDS_APU
+         module LEDS_INTEL_SS4200
+     ;;
++    aarch64)
++	module LEDS_QCOM_FLASH
++    ;;
+ esac
+ 
+ enable CPU_FREQ
+-- 
+2.51.0
+

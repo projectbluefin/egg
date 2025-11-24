@@ -1,0 +1,439 @@
+From de4793fc4063a26914c5be790829179122339cce Mon Sep 17 00:00:00 2001
+From: Valentin David <me@valentindavid.com>
+Date: Sun, 24 Aug 2025 23:39:36 +0100
+Subject: [PATCH 3/6] linux: Backport patches for OnePlus 6's panel
+
+Those patches come from either mainline or from the Linaro's branch for
+sdm845 which should get mainlined soon.
+
+These are required to have minimally functional OnePlus 6. For now, I
+will not backport other fixes that does not make it impossible to
+boot. And instead we can wait for mainlining.
+---
+ elements/include/linux.yml                    |   2 +
+ files/linux/fdsdk-config.sh                   |   1 +
+ ...el-sofef00-move-DSI-calls-to-disable.patch |  44 +++++++
+ ...drm-panel-sofef00-prepare_prev_first.patch |  29 +++++
+ ...-sofef00-initialise-at-50-brightness.patch |  30 +++++
+ ...ef00-don-t-initialise-panel-in-reset.patch |  31 +++++
+ ...rm-panel-sofef00-don-t-use-unprepare.patch |  60 +++++++++
+ ...006-drm-panel-sofef00-fix-panel-name.patch |  28 ++++
+ ...anel-sofef00-proper-power-sequencing.patch | 120 ++++++++++++++++++
+ 9 files changed, 345 insertions(+)
+ create mode 100644 patches/linux-oneplus6/0001-drm-panel-sofef00-move-DSI-calls-to-disable.patch
+ create mode 100644 patches/linux-oneplus6/0002-drm-panel-sofef00-prepare_prev_first.patch
+ create mode 100644 patches/linux-oneplus6/0003-drm-panel-sofef00-initialise-at-50-brightness.patch
+ create mode 100644 patches/linux-oneplus6/0004-drm-panel-sofef00-don-t-initialise-panel-in-reset.patch
+ create mode 100644 patches/linux-oneplus6/0005-drm-panel-sofef00-don-t-use-unprepare.patch
+ create mode 100644 patches/linux-oneplus6/0006-drm-panel-sofef00-fix-panel-name.patch
+ create mode 100644 patches/linux-oneplus6/0007-drm-panel-sofef00-proper-power-sequencing.patch
+
+diff --git a/elements/include/linux.yml b/elements/include/linux.yml
+index a90a2ab93..764894b42 100644
+--- a/elements/include/linux.yml
++++ b/elements/include/linux.yml
+@@ -7,3 +7,5 @@ sources:
+   ref: v6.17.6-0-g371f1e070fa95c71356104a406855a361aad5668
+ - kind: patch_queue
+   path: patches/linux
++- kind: patch_queue
++  path: patches/linux-oneplus6
+diff --git a/files/linux/fdsdk-config.sh b/files/linux/fdsdk-config.sh
+index 0ce0061c4..7b603e488 100644
+--- a/files/linux/fdsdk-config.sh
++++ b/files/linux/fdsdk-config.sh
+@@ -676,6 +676,7 @@ case "$arch" in
+     aarch64)
+         module DRM_PANFROST
+         module DRM_MSM
++        module DRM_PANEL_SAMSUNG_SOFEF00
+     ;;
+ esac
+ 
+diff --git a/patches/linux-oneplus6/0001-drm-panel-sofef00-move-DSI-calls-to-disable.patch b/patches/linux-oneplus6/0001-drm-panel-sofef00-move-DSI-calls-to-disable.patch
+new file mode 100644
+index 000000000..598c99146
+--- /dev/null
++++ b/patches/linux-oneplus6/0001-drm-panel-sofef00-move-DSI-calls-to-disable.patch
+@@ -0,0 +1,44 @@
++From 2b3f7e31064f54fa46896fda5137a8b077843aff Mon Sep 17 00:00:00 2001
++From: Caleb Connolly <caleb.connolly@linaro.org>
++Date: Sat, 10 Dec 2022 02:50:18 +0000
++Subject: [PATCH 1/7] drm/panel: sofef00: move DSI calls to disable
++
++Signed-off-by: Caleb Connolly <caleb.connolly@linaro.org>
++---
++ drivers/gpu/drm/panel/panel-samsung-sofef00.c | 5 +++--
++ 1 file changed, 3 insertions(+), 2 deletions(-)
++
++diff --git a/drivers/gpu/drm/panel/panel-samsung-sofef00.c b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++index 064258217d50..1f43b042ff5b 100644
++--- a/drivers/gpu/drm/panel/panel-samsung-sofef00.c
+++++ b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++@@ -67,8 +67,9 @@ static int sofef00_panel_on(struct sofef00_panel *ctx)
++ 	return dsi_ctx.accum_err;
++ }
++ 
++-static int sofef00_panel_off(struct sofef00_panel *ctx)
+++static int sofef00_panel_disable(struct drm_panel *panel)
++ {
+++	struct sofef00_panel *ctx = to_sofef00_panel(panel);
++ 	struct mipi_dsi_device *dsi = ctx->dsi;
++ 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = dsi };
++ 
++@@ -110,7 +111,6 @@ static int sofef00_panel_unprepare(struct drm_panel *panel)
++ {
++ 	struct sofef00_panel *ctx = to_sofef00_panel(panel);
++ 
++-	sofef00_panel_off(ctx);
++ 	regulator_disable(ctx->supply);
++ 
++ 	return 0;
++@@ -150,6 +150,7 @@ static int sofef00_panel_get_modes(struct drm_panel *panel, struct drm_connector
++ 
++ static const struct drm_panel_funcs sofef00_panel_panel_funcs = {
++ 	.prepare = sofef00_panel_prepare,
+++	.disable = sofef00_panel_disable,
++ 	.unprepare = sofef00_panel_unprepare,
++ 	.get_modes = sofef00_panel_get_modes,
++ };
++-- 
++2.51.0
++
+diff --git a/patches/linux-oneplus6/0002-drm-panel-sofef00-prepare_prev_first.patch b/patches/linux-oneplus6/0002-drm-panel-sofef00-prepare_prev_first.patch
+new file mode 100644
+index 000000000..fba567837
+--- /dev/null
++++ b/patches/linux-oneplus6/0002-drm-panel-sofef00-prepare_prev_first.patch
+@@ -0,0 +1,29 @@
++From aee5adac2a23c86bcda7abfb2056bbf1e66ce232 Mon Sep 17 00:00:00 2001
++From: Caleb Connolly <caleb.connolly@linaro.org>
++Date: Wed, 17 Apr 2024 16:11:31 +0100
++Subject: [PATCH 2/7] drm/panel: sofef00: prepare_prev_first
++
++This corrects the host initialisation sequence so that we can send
++DSI/DCS commands in prepare().
++
++Signed-off-by: Caleb Connolly <caleb.connolly@linaro.org>
++---
++ drivers/gpu/drm/panel/panel-samsung-sofef00.c | 2 ++
++ 1 file changed, 2 insertions(+)
++
++diff --git a/drivers/gpu/drm/panel/panel-samsung-sofef00.c b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++index 1f43b042ff5b..2958b0bcb7e8 100644
++--- a/drivers/gpu/drm/panel/panel-samsung-sofef00.c
+++++ b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++@@ -214,6 +214,8 @@ static int sofef00_panel_probe(struct mipi_dsi_device *dsi)
++ 	dsi->lanes = 4;
++ 	dsi->format = MIPI_DSI_FMT_RGB888;
++ 
+++	ctx->panel.prepare_prev_first = true;
+++
++ 	ctx->panel.backlight = sofef00_create_backlight(dsi);
++ 	if (IS_ERR(ctx->panel.backlight))
++ 		return dev_err_probe(dev, PTR_ERR(ctx->panel.backlight),
++-- 
++2.51.0
++
+diff --git a/patches/linux-oneplus6/0003-drm-panel-sofef00-initialise-at-50-brightness.patch b/patches/linux-oneplus6/0003-drm-panel-sofef00-initialise-at-50-brightness.patch
+new file mode 100644
+index 000000000..038c88c3e
+--- /dev/null
++++ b/patches/linux-oneplus6/0003-drm-panel-sofef00-initialise-at-50-brightness.patch
+@@ -0,0 +1,30 @@
++From 8046b8cda974c9d4bfc5083d66b119c1f3b988d3 Mon Sep 17 00:00:00 2001
++From: Caleb Connolly <caleb.connolly@linaro.org>
++Date: Wed, 17 Apr 2024 14:20:35 +0100
++Subject: [PATCH 3/7] drm/panel: sofef00: initialise at 50% brightness
++
++Initialising at max brightness is no fun during those late night hacking
++sessions. Half brightness is much more comfortable in most settings so
++go with that instead.
++
++Signed-off-by: Caleb Connolly <caleb.connolly@linaro.org>
++---
++ drivers/gpu/drm/panel/panel-samsung-sofef00.c | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/drivers/gpu/drm/panel/panel-samsung-sofef00.c b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++index 2958b0bcb7e8..96360e272d4c 100644
++--- a/drivers/gpu/drm/panel/panel-samsung-sofef00.c
+++++ b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++@@ -178,7 +178,7 @@ sofef00_create_backlight(struct mipi_dsi_device *dsi)
++ 	struct device *dev = &dsi->dev;
++ 	const struct backlight_properties props = {
++ 		.type = BACKLIGHT_PLATFORM,
++-		.brightness = 1023,
+++		.brightness = 512,
++ 		.max_brightness = 1023,
++ 	};
++ 
++-- 
++2.51.0
++
+diff --git a/patches/linux-oneplus6/0004-drm-panel-sofef00-don-t-initialise-panel-in-reset.patch b/patches/linux-oneplus6/0004-drm-panel-sofef00-don-t-initialise-panel-in-reset.patch
+new file mode 100644
+index 000000000..6d3d351f7
+--- /dev/null
++++ b/patches/linux-oneplus6/0004-drm-panel-sofef00-don-t-initialise-panel-in-reset.patch
+@@ -0,0 +1,31 @@
++From f1bd58c383fa75bf636b75933315591e8d94efff Mon Sep 17 00:00:00 2001
++From: Caleb Connolly <caleb.connolly@linaro.org>
++Date: Wed, 17 Apr 2024 14:23:39 +0100
++Subject: [PATCH 4/7] drm/panel: sofef00: don't initialise panel in reset
++
++During probe when we claim the panel reset GPIO, we currently fetch it
++with GPIOD_OUT_HIGH, this puts the panel into reset which blanks it.
++Instead let's set it OUT_LOW so that the bootloader splash image stays
++on the screen.
++
++Signed-off-by: Caleb Connolly <caleb.connolly@linaro.org>
++---
++ drivers/gpu/drm/panel/panel-samsung-sofef00.c | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/drivers/gpu/drm/panel/panel-samsung-sofef00.c b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++index 96360e272d4c..b8bb0b1f4ee8 100644
++--- a/drivers/gpu/drm/panel/panel-samsung-sofef00.c
+++++ b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++@@ -203,7 +203,7 @@ static int sofef00_panel_probe(struct mipi_dsi_device *dsi)
++ 		return dev_err_probe(dev, PTR_ERR(ctx->supply),
++ 				     "Failed to get vddio regulator\n");
++ 
++-	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
+++	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
++ 	if (IS_ERR(ctx->reset_gpio))
++ 		return dev_err_probe(dev, PTR_ERR(ctx->reset_gpio),
++ 				     "Failed to get reset-gpios\n");
++-- 
++2.51.0
++
+diff --git a/patches/linux-oneplus6/0005-drm-panel-sofef00-don-t-use-unprepare.patch b/patches/linux-oneplus6/0005-drm-panel-sofef00-don-t-use-unprepare.patch
+new file mode 100644
+index 000000000..70a9b21fe
+--- /dev/null
++++ b/patches/linux-oneplus6/0005-drm-panel-sofef00-don-t-use-unprepare.patch
+@@ -0,0 +1,60 @@
++From 481bcf0439613a139e0ed7715e779db896bc4d76 Mon Sep 17 00:00:00 2001
++From: Caleb Connolly <caleb.connolly@linaro.org>
++Date: Wed, 17 Apr 2024 15:26:42 +0100
++Subject: [PATCH 5/7] drm/panel: sofef00: don't use unprepare
++
++We can't send DSI commands in unprepare, move panel power off handling
++to disable instead.
++
++Signed-off-by: Caleb Connolly <caleb.connolly@linaro.org>
++---
++ drivers/gpu/drm/panel/panel-samsung-sofef00.c | 15 +++++++++++----
++ 1 file changed, 11 insertions(+), 4 deletions(-)
++
++diff --git a/drivers/gpu/drm/panel/panel-samsung-sofef00.c b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++index b8bb0b1f4ee8..52e3d82a8a45 100644
++--- a/drivers/gpu/drm/panel/panel-samsung-sofef00.c
+++++ b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++@@ -67,9 +67,8 @@ static int sofef00_panel_on(struct sofef00_panel *ctx)
++ 	return dsi_ctx.accum_err;
++ }
++ 
++-static int sofef00_panel_disable(struct drm_panel *panel)
+++static int sofef00_panel_off(struct sofef00_panel *ctx)
++ {
++-	struct sofef00_panel *ctx = to_sofef00_panel(panel);
++ 	struct mipi_dsi_device *dsi = ctx->dsi;
++ 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = dsi };
++ 
++@@ -107,10 +106,19 @@ static int sofef00_panel_prepare(struct drm_panel *panel)
++ 	return 0;
++ }
++ 
++-static int sofef00_panel_unprepare(struct drm_panel *panel)
+++static int sofef00_panel_disable(struct drm_panel *panel)
++ {
++ 	struct sofef00_panel *ctx = to_sofef00_panel(panel);
+++	struct device *dev = &ctx->dsi->dev;
+++	int ret;
++ 
+++	dev_dbg(dev, "%s\n", __func__);
+++
+++	ret = sofef00_panel_off(ctx);
+++	if (ret < 0)
+++		dev_err(dev, "Failed to un-initialize panel: %d\n", ret);
+++
+++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++ 	regulator_disable(ctx->supply);
++ 
++ 	return 0;
++@@ -151,7 +159,6 @@ static int sofef00_panel_get_modes(struct drm_panel *panel, struct drm_connector
++ static const struct drm_panel_funcs sofef00_panel_panel_funcs = {
++ 	.prepare = sofef00_panel_prepare,
++ 	.disable = sofef00_panel_disable,
++-	.unprepare = sofef00_panel_unprepare,
++ 	.get_modes = sofef00_panel_get_modes,
++ };
++ 
++-- 
++2.51.0
++
+diff --git a/patches/linux-oneplus6/0006-drm-panel-sofef00-fix-panel-name.patch b/patches/linux-oneplus6/0006-drm-panel-sofef00-fix-panel-name.patch
+new file mode 100644
+index 000000000..b4c532f82
+--- /dev/null
++++ b/patches/linux-oneplus6/0006-drm-panel-sofef00-fix-panel-name.patch
+@@ -0,0 +1,28 @@
++From 2277b6cc30ca2f44291401cf5b22a36e135f2baa Mon Sep 17 00:00:00 2001
++From: Caleb Connolly <caleb.connolly@linaro.org>
++Date: Wed, 17 Apr 2024 15:29:11 +0100
++Subject: [PATCH 6/7] drm/panel: sofef00: fix panel name
++
++This isn't the OnePlus 6 panel driver... it's the sofef00 panel driver.
++
++Signed-off-by: Caleb Connolly <caleb.connolly@linaro.org>
++---
++ drivers/gpu/drm/panel/panel-samsung-sofef00.c | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/drivers/gpu/drm/panel/panel-samsung-sofef00.c b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++index 52e3d82a8a45..37d3be4cc2ef 100644
++--- a/drivers/gpu/drm/panel/panel-samsung-sofef00.c
+++++ b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++@@ -262,7 +262,7 @@ static struct mipi_dsi_driver sofef00_panel_driver = {
++ 	.probe = sofef00_panel_probe,
++ 	.remove = sofef00_panel_remove,
++ 	.driver = {
++-		.name = "panel-oneplus6",
+++		.name = "panel-samsung-sofef00",
++ 		.of_match_table = sofef00_panel_of_match,
++ 	},
++ };
++-- 
++2.51.0
++
+diff --git a/patches/linux-oneplus6/0007-drm-panel-sofef00-proper-power-sequencing.patch b/patches/linux-oneplus6/0007-drm-panel-sofef00-proper-power-sequencing.patch
+new file mode 100644
+index 000000000..8a1f5cec5
+--- /dev/null
++++ b/patches/linux-oneplus6/0007-drm-panel-sofef00-proper-power-sequencing.patch
+@@ -0,0 +1,120 @@
++From 1c3d893a133a0dfe81702805eb7d0c5370187193 Mon Sep 17 00:00:00 2001
++From: Caleb Connolly <caleb.connolly@linaro.org>
++Date: Wed, 17 Apr 2024 15:31:06 +0100
++Subject: [PATCH 7/7] drm/panel: sofef00: proper power sequencing
++
++There are two additional regulators on this panel, vci and poc. Use the
++regulator bulk API to fetch and enable all regulators at once.
++
++In addition, let's also fix how we model the power sequencing of this
++panel. On the devices it's used on, the panel is powered up and
++configuring by the bootloader during boot to display a splash image.
++This makes the first .prepare() call totally redundant, as all the
++supplies are on and the panel has been programmed correctly.
++
++The hygenic thing to do would be to fully power sequence the panel to be
++super sure that it's initialised the way we expect. However, the only
++user of this panel (the OnePlus 6) isn't likely to get any breaking
++changes to the bootloader. So let's just skip the first prepare() if the
++regulators are already enabled.
++
++This gives us a fairly smooth transition, with only very minor visual
++artifacting (a while horizontal line) when the DSI engine starts up.
++
++For future reference, if we replace the "return 0" with a call to
++sofef00_panel_off() followed by regulator_bulk_disable() and a sleep, we
++can then continue the prepare as normal and the panel behaves just the
++same.
++
++Once the panel is powered off for the first time, we will then do a full
++power up during prepare.
++
++Signed-off-by: Caleb Connolly <caleb.connolly@linaro.org>
++---
++ drivers/gpu/drm/panel/panel-samsung-sofef00.c | 40 ++++++++++++++++---
++ 1 file changed, 34 insertions(+), 6 deletions(-)
++
++diff --git a/drivers/gpu/drm/panel/panel-samsung-sofef00.c b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++index 37d3be4cc2ef..8f2b5130b739 100644
++--- a/drivers/gpu/drm/panel/panel-samsung-sofef00.c
+++++ b/drivers/gpu/drm/panel/panel-samsung-sofef00.c
++@@ -20,7 +20,8 @@
++ struct sofef00_panel {
++ 	struct drm_panel panel;
++ 	struct mipi_dsi_device *dsi;
++-	struct regulator *supply;
+++	bool first_prepare;
+++	struct regulator_bulk_data supplies[3];
++ 	struct gpio_desc *reset_gpio;
++ };
++ 
++@@ -89,7 +90,20 @@ static int sofef00_panel_prepare(struct drm_panel *panel)
++ 	struct device *dev = &ctx->dsi->dev;
++ 	int ret;
++ 
++-	ret = regulator_enable(ctx->supply);
+++	dev_dbg(dev, "%s\n", __func__);
+++
+++	/*
+++	 * On boot the panel has already been initialised, if the regulators are
+++	 * already enabled then we can safely assume that the panel is on and we
+++	 * can skip the prepare.
+++	 */
+++	if (regulator_is_enabled(ctx->supplies[0].consumer) && ctx->first_prepare) {
+++		ctx->first_prepare = false;
+++		dev_dbg(dev, "First prepare!\n");
+++		return 0;
+++	}
+++
+++	ret = regulator_bulk_enable(ARRAY_SIZE(ctx->supplies), ctx->supplies);
++ 	if (ret < 0) {
++ 		dev_err(dev, "Failed to enable regulator: %d\n", ret);
++ 		return ret;
++@@ -100,6 +114,7 @@ static int sofef00_panel_prepare(struct drm_panel *panel)
++ 	ret = sofef00_panel_on(ctx);
++ 	if (ret < 0) {
++ 		gpiod_set_value_cansleep(ctx->reset_gpio, 1);
+++		regulator_bulk_disable(ARRAY_SIZE(ctx->supplies), ctx->supplies);
++ 		return ret;
++ 	}
++ 
++@@ -119,7 +134,7 @@ static int sofef00_panel_disable(struct drm_panel *panel)
++ 		dev_err(dev, "Failed to un-initialize panel: %d\n", ret);
++ 
++ 	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++-	regulator_disable(ctx->supply);
+++	regulator_bulk_disable(ARRAY_SIZE(ctx->supplies), ctx->supplies);
++ 
++ 	return 0;
++ }
++@@ -205,11 +220,24 @@ static int sofef00_panel_probe(struct mipi_dsi_device *dsi)
++ 	if (IS_ERR(ctx))
++ 		return PTR_ERR(ctx);
++ 
++-	ctx->supply = devm_regulator_get(dev, "vddio");
++-	if (IS_ERR(ctx->supply))
++-		return dev_err_probe(dev, PTR_ERR(ctx->supply),
+++	ctx->supplies[0].supply = "vddio";
+++	ctx->supplies[1].supply = "vci";
+++	ctx->supplies[2].supply = "poc";
+++
+++	ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(ctx->supplies), ctx->supplies);
+++	if (ret)
+++		return dev_err_probe(dev, ret,
++ 				     "Failed to get vddio regulator\n");
++ 
+++	/* Regulators are all boot-on, enable them to balance the refcounts so we can disable
+++	 * them later in the first prepare() call */
+++	ret = regulator_bulk_enable(ARRAY_SIZE(ctx->supplies), ctx->supplies);
+++	if (ret < 0)
+++		return dev_err_probe(dev, ret,
+++				     "Failed to enable regulators\n");
+++
+++	ctx->first_prepare = true;
+++
++ 	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
++ 	if (IS_ERR(ctx->reset_gpio))
++ 		return dev_err_probe(dev, PTR_ERR(ctx->reset_gpio),
++-- 
++2.51.0
++
+-- 
+2.51.0
+

@@ -1,0 +1,76 @@
+diff --git a/files/fakecap/fakecap.c b/files/fakecap/fakecap.c
+index 9e5bbb369..a3b1ad63a 100644
+--- a/files/fakecap/fakecap.c
++++ b/files/fakecap/fakecap.c
+@@ -37,6 +37,17 @@
+ #include <sys/xattr.h>
+ #include <unistd.h>
+ 
++static
++int handle_cap(const char* name) {
++  if (strcmp(name, "security.capability") == 0) {
++    return 1;
++  }
++  if (strncmp(name, "user.validatefs.", 16) == 0) {
++    return 1;
++  }
++  return 0;
++}
++
+ static
+ int open_metadata(struct stat *st, const char* name, int flags, mode_t mode) {
+   char *path = NULL;
+@@ -105,7 +116,7 @@ ssize_t getxattr(const char *path, const char *name,
+   next = (ssize_t(*)(const char *path, const char *name,
+                      void *value, size_t size))dlsym(RTLD_NEXT, "getxattr");
+ 
+-  if (strcmp(name, "security.capability") != 0) {
++  if (!handle_cap(name)) {
+     return next(path, name, value, size);
+   }
+   if (stat(path, &st) != 0) {
+@@ -130,7 +141,7 @@ ssize_t lgetxattr(const char *path, const char *name,
+   next = (ssize_t(*)(const char *path, const char *name,
+                      void *value, size_t size))dlsym(RTLD_NEXT, "lgetxattr");
+ 
+-  if (strcmp(name, "security.capability") != 0) {
++  if (!handle_cap(name)) {
+     return next(path, name, value, size);
+   }
+   if (lstat(path, &st) != 0) {
+@@ -155,7 +166,7 @@ ssize_t fgetxattr(int fd, const char *name,
+   next = (ssize_t(*)(int fd, const char *name,
+                      void *value, size_t size))dlsym(RTLD_NEXT, "fgetxattr");
+ 
+-  if (strcmp(name, "security.capability") != 0) {
++  if (!handle_cap(name)) {
+     return next(fd, name, value, size);
+   }
+   if (fstat(fd, &st) != 0) {
+@@ -202,7 +213,7 @@ int setxattr(const char *path, const char *name,
+   next = (int (*)(const char *path, const char *name,
+                   const void *value, size_t size, int flags))dlsym(RTLD_NEXT, "setxattr");
+ 
+-  if (strcmp(name, "security.capability") != 0) {
++  if (!handle_cap(name)) {
+     return next(path, name, value, size, flags);
+   }
+   if (stat(path, &st) != 0) {
+@@ -226,7 +237,7 @@ int lsetxattr(const char *path, const char *name,
+   next = (int (*)(const char *path, const char *name,
+                   const void *value, size_t size, int flags))dlsym(RTLD_NEXT, "lsetxattr");
+ 
+-  if (strcmp(name, "security.capability") != 0) {
++  if (!handle_cap(name)) {
+     return next(path, name, value, size, flags);
+   }
+   if (lstat(path, &st) != 0) {
+@@ -250,7 +261,7 @@ int fsetxattr(int fd, const char *name,
+   next = (int (*)(int fd, const char *name,
+                   const void *value, size_t size, int flags))dlsym(RTLD_NEXT, "fsetxattr");
+ 
+-  if (strcmp(name, "security.capability") != 0) {
++  if (!handle_cap(name)) {
+     return next(fd, name, value, size, flags);
+   }
+   if (fstat(fd, &st) != 0) {

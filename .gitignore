@@ -1,0 +1,9 @@
+# Ignore Python local cache across repo
+**/__pycache__/
+
+# Ignore BuildStream local state
+.bst
+.bst2
+
+*.img
+*.raw

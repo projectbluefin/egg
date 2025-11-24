@@ -1,0 +1,20 @@
+#!/bin/bash
+# Bluefin Bazaar Launcher - Fallback to flatpak if RPM is not available
+# This script tries to launch bazaar from RPM first, then falls back to flatpak
+
+# Try RPM version first
+if command -v bazaar >/dev/null 2>&1 && [ -x "$(command -v bazaar)" ]; then
+    exec bazaar window --auto-service
+fi
+
+# Fall back to flatpak version
+if command -v flatpak >/dev/null 2>&1; then
+    # Check if the bazaar flatpak is installed
+    if flatpak info io.github.kolunmi.Bazaar >/dev/null 2>&1; then
+        exec flatpak run io.github.kolunmi.Bazaar
+    fi
+fi
+
+# If neither is available, show a user-friendly message
+notify-send "Software Center Unavailable" "Neither the RPM nor Flatpak version of Bazaar is installed." --icon=dialog-error 2>/dev/null || echo "Error: Bazaar software center is not available. Please install it via RPM or Flatpak." >&2
+exit 1

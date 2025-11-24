@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+NoDisplay=false
+Terminal=false
+Exec=xdg-open https://github.com/ublue-os/bluefin/discussions
+Icon=ublue-discourse
+Name=Community
+Comment=Bluefin Discussions
+Categories=Utility;

@@ -1,0 +1,1 @@
+alias rl="ramalama"

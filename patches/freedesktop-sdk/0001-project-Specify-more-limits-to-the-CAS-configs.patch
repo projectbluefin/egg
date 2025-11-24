@@ -1,0 +1,40 @@
+From ef8769392895f3a3028ed95d39dc52ceeffa32c8 Mon Sep 17 00:00:00 2001
+From: Jordan Petridis <jpetridis@gnome.org>
+Date: Mon, 18 Aug 2025 01:06:36 +0100
+Subject: [PATCH 1/6] project: Specify more limits to the CAS configs
+
+These are disabled by default due to backward compatibility
+so we need to explicitly set some values for timeouts and
+retry policies.
+
+This also bumps the min-version to 2.5 which is when these
+options were introduced.
+---
+ project.conf | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/project.conf b/project.conf
+index 0f3c86242..c9c8ab6a9 100644
+--- a/project.conf
++++ b/project.conf
+@@ -156,11 +156,17 @@ artifacts:
+ - url: https://cache.freedesktop-sdk.io:11001
+   connection-config:
+     keepalive-time: 60
++    retry-limit: 5
++    retry-delay: 500
++    request-timeout: 180
+ 
+ source-caches:
+ - url: https://cache.freedesktop-sdk.io:11001
+   connection-config:
+     keepalive-time: 60
++    retry-limit: 5
++    retry-delay: 500
++    request-timeout: 180
+ 
+ sandbox:
+   build-arch: '%{target_arch}'
+-- 
+2.51.0
+
