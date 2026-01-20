@@ -1,4 +1,4 @@
+![Conga](https://github.com/user-attachments/assets/2e3dc15c-4f49-48e4-98f8-bcf448f8af2f)
+
 # egg
 Bluefin's Primal Form - the buildstream itself. Smol.
-
-<img width="729" height="375" alt="image" src="https://github.com/user-attachments/assets/48e03d55-0aba-40db-9794-8c747de452c7" />
