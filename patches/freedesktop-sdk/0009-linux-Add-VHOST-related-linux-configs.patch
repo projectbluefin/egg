@@ -1,0 +1,28 @@
+From 4602321ea42c5a2669e491b10006523136fdc795 Mon Sep 17 00:00:00 2001
+From: Valentin David <me@valentindavid.com>
+Date: Thu, 27 Nov 2025 23:07:47 +0100
+Subject: [PATCH 09/11] linux: Add VHOST related linux configs
+
+---
+ files/linux/fdsdk-config.sh | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/files/linux/fdsdk-config.sh b/files/linux/fdsdk-config.sh
+index 83743d9bf..9550d46ca 100644
+--- a/files/linux/fdsdk-config.sh
++++ b/files/linux/fdsdk-config.sh
+@@ -1613,6 +1613,11 @@ case "$arch" in
+     ;;
+ esac
+ module VHOST_VSOCK
++module VHOST_NET
++module TARGET_CORE
++module VHOST_SCSI
++module VDPA_USER
++module VHOST_VDPA
+ 
+ # Useful filesystems
+ for fs in XFS BTRFS EXFAT VFAT F2FS ISO9660 UDF NTFS3; do
+-- 
+2.52.0
+

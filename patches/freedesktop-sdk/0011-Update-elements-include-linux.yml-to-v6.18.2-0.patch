@@ -1,0 +1,61 @@
+From e7e0a69d1069cc4036a5ea41b350d1006550d7a1 Mon Sep 17 00:00:00 2001
+From: Abderrahim Kitouni <akitouni@gnome.org>
+Date: Sun, 21 Dec 2025 12:11:57 +0100
+Subject: [PATCH 11/11] Update elements/include/linux.yml to v6.18.2-0
+
+Updates elements/include/linux.yml to v6.18.2-0 (78d8296)
+Previous version was v6.17.9-0 (1bfd0fa)
+
+This also changes the config accordingly:
+* CRYPTO_CURVE25519 was removed
+* HYPERV is no longer a tristate
+* DRM_NOUVEAU_GSP_DEFAULT is now always enabled
+---
+ elements/include/linux.yml  | 2 +-
+ files/linux/fdsdk-config.sh | 4 +---
+ 2 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/elements/include/linux.yml b/elements/include/linux.yml
+index f3a143180..2100a2629 100644
+--- a/elements/include/linux.yml
++++ b/elements/include/linux.yml
+@@ -4,6 +4,6 @@ sources:
+   track: v*
+   exclude:
+   - '*-rc*'
+-  ref: v6.17.9-0-g1bfd0faa78d09eb41b81b002e0292db0f3e75de0
++  ref: v6.18.2-0-g78d82960b939df64cf7d26ca5ed34eb87f44c9e5
+ - kind: patch_queue
+   path: patches/linux
+diff --git a/files/linux/fdsdk-config.sh b/files/linux/fdsdk-config.sh
+index eaa7c21d4..dd701640e 100644
+--- a/files/linux/fdsdk-config.sh
++++ b/files/linux/fdsdk-config.sh
+@@ -102,7 +102,6 @@ module CRYPTO_CMAC
+ module CRYPTO_CRC32
+ module CRYPTO_CRC32C
+ module CRYPTO_CTS
+-module CRYPTO_CURVE25519
+ module CRYPTO_DEFLATE
+ module CRYPTO_DES
+ module CRYPTO_DH
+@@ -357,7 +356,7 @@ esac
+ # Hyper-V
+ case "$arch" in
+     x86_64|aarch64)
+-        module HYPERV
++        enable HYPERV
+         module PCI_HYPERV
+         module HYPERV_BALLOON
+         module HYPERV_NET
+@@ -686,7 +685,6 @@ fi
+ enable DRM_SIMPLEDRM
+ enable SYSFB_SIMPLEFB
+ module DRM_NOUVEAU
+-enable DRM_NOUVEAU_GSP_DEFAULT
+ module DRM_RADEON
+ module DRM_AMDGPU
+ enable DRM_AMDGPU_SI
+-- 
+2.52.0
+

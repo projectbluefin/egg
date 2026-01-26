@@ -1,0 +1,42 @@
+From 31d0b316bf52cdcc6e3d6667736458d6c9a44539 Mon Sep 17 00:00:00 2001
+From: Valentin David <me@valentindavid.com>
+Date: Sat, 13 Dec 2025 12:47:23 +0100
+Subject: [PATCH 08/11] linux: Add missing modules for rtw88/89 wifi interfaces
+
+---
+ files/linux/fdsdk-config.sh | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/files/linux/fdsdk-config.sh b/files/linux/fdsdk-config.sh
+index b11840388..83743d9bf 100644
+--- a/files/linux/fdsdk-config.sh
++++ b/files/linux/fdsdk-config.sh
+@@ -427,6 +427,25 @@ module ATH10K_PCI
+ module RTW88
+ enable RTW88_8822BE
+ enable RTW88_8822CE
++module RTW88_8822BS
++module RTW88_8822BU
++module RTW88_8822CS
++module RTW88_8822CU
++module RTW88_8723DS
++module RTW88_8723CS
++module RTW88_8723DU
++module RTW88_8821CS
++module RTW88_8821CU
++module RTW88_8812AU
++module RTW88_8814AE
++module RTW88_8814AU
++module RTW89_8851BE
++module RTW89_8851BU
++module RTW89_8852BE
++module RTW89_8852BU
++module RTW89_8852BTE
++module RTW89_8852CE
++module RTW89_8922AE
+ enable WLAN_VENDOR_ATH
+ module AR5523
+ module ATH10K_USB
+-- 
+2.52.0
+
