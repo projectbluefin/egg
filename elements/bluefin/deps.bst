@@ -9,7 +9,6 @@ depends:
 
   - bluefin/common.bst
   - bluefin/wallpapers.bst
-  - bluefin/os-release.bst
 
   - bluefin/jetbrains-mono.bst
 
@@ -19,4 +18,7 @@ depends:
   - freedesktop-sdk.bst:components/podman.bst
   - freedesktop-sdk.bst:components/containers-common.bst
   - freedesktop-sdk.bst:components/skopeo.bst
+  - freedesktop-sdk.bst:components/gcc.bst
   - gnome-build-meta.bst:gnomeos-deps/distrobox.bst
+  - gnome-build-meta.bst:gnomeos-deps/just.bst
+  - gnome-build-meta.bst:gnomeos-deps/wl-clipboard.bst
