@@ -1,0 +1,28 @@
+From 29294b10a1a158511e00e69cefe5c3a2c8c74f3e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ignacy=20Kuchci=C5=84ski?= <ignacykuchcinski@gmail.com>
+Date: Fri, 9 Jan 2026 02:34:07 +0100
+Subject: [PATCH 1/2] linux: Add missing soc button module
+
+Also necessary for tablet mode detection on Framework 12.
+
+Based on https://github.com/FrameworkComputer/linux-docs/blob/main/framework12/debugging.md
+---
+ files/linux/fdsdk-config.sh | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/files/linux/fdsdk-config.sh b/files/linux/fdsdk-config.sh
+index c858b47fb..b9c7c462d 100644
+--- a/files/linux/fdsdk-config.sh
++++ b/files/linux/fdsdk-config.sh
+@@ -2810,3 +2810,8 @@ module BLK_DEV_SR
+ module APPLE_MFI_FASTCHARGE
+ 
+ enable IDLE_PAGE_TRACKING
++
++# Tablet mode on Framework 12
++if has ACPI; then
++  module INPUT_SOC_BUTTON_ARRAY
++fi
+-- 
+2.52.0
+
