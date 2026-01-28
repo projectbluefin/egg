@@ -18,6 +18,7 @@ config:
 
     # Replace the element so the OCI image generates Bluefin's os-release file
     oci/os-release.bst: oci/os-release.bst
+    oci/gnomeos.bst: oci/gnomeos.bst
 
     plugins/buildstream-plugins.bst: plugins/buildstream-plugins.bst
     plugins/buildstream-plugins-community.bst: plugins/buildstream-plugins-community.bst

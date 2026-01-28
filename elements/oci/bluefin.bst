@@ -2,10 +2,12 @@ kind: script
 
 build-depends:
   - gnome-build-meta.bst:freedesktop-sdk.bst:components/fakecap.bst
-  - gnome-build-meta.bst:freedesktop-sdk.bst:components/oci-builder.bst
+  # - gnome-build-meta.bst:freedesktop-sdk.bst:components/oci-builder.bst
+  - core/build-oci-rs.bst
+  - freedesktop-sdk.bst:components/glib.bst
   - gnome-build-meta.bst:freedesktop-sdk.bst:vm/prepare-image.bst
   - oci/layers/bluefin-init-scripts.bst
-  - filename: gnome-build-meta.bst:oci/gnomeos.bst
+  - filename: oci/gnomeos.bst
     config:
       location: /parent
   - filename: oci/layers/bluefin.bst
@@ -33,8 +35,11 @@ config:
     systemd-sysusers --root /layer
 
   - |
+    glib-compile-schemas /layer/usr/share/glib-2.0/schemas
+
+  - |
     cd "%{install-root}"
-    build-oci <<EOF
+    build-oci -j %{max-jobs} <<EOF
     mode: oci
     gzip: disabled
     images:
