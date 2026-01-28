@@ -26,9 +26,6 @@ config:
     _uuid="$(jq -r .uuid metadata.json)"
     install -d "%{install-root}/usr/share/gnome-shell/extensions/${_uuid}"
     bsdtar xvf "build/${_uuid}.shell-extension.zip" -C "%{install-root}/usr/share/gnome-shell/extensions/${_uuid}/" --no-same-owner
-
-    mv "%{install-root}/usr/share/gnome-shell/extensions/${_uuid}/locale" "%{install-root}/usr/share"
-    install -Dm644 schemas/*.gschema.xml -t "%{install-root}/usr/share/glib-2.0/schemas/"
-    rm -rf "%{install-root}/usr/share/gnome-shell/extensions/${_uuid}/schemas"
+    glib-compile-schemas --strict "%{install-root}%{datadir}/gnome-shell/extensions/${_uuid}/schemas"
   - |
     %{install-extra}

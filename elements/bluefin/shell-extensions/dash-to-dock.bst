@@ -8,6 +8,7 @@ sources:
 
 build-depends:
 - freedesktop-sdk.bst:public-stacks/buildsystem-make.bst
+- freedesktop-sdk.bst:components/jq.bst
 
 depends:
 - freedesktop-sdk.bst:components/gettext.bst
@@ -21,6 +22,12 @@ variables:
 config:
   install-commands:
   - |
-    DESTDIR=%{install-root} %{make-install}
+    _uuid="$(jq -r .uuid metadata.json)"
+    %{make-install}
+
+    # Move the schemas from /usr/share/glib-2.0 to the extension's directory and compile it there
+    mkdir -p "%{install-root}%{datadir}/gnome-shell/extensions/${_uuid}/schemas"
+    mv "%{install-root}%{datadir}/glib-2.0/schemas/org.gnome.shell.extensions.dash-to-dock.gschema.xml" "%{install-root}%{datadir}/gnome-shell/extensions/${_uuid}/schemas"
+    glib-compile-schemas --strict "%{install-root}%{datadir}/gnome-shell/extensions/${_uuid}/schemas"
   - |
     %{install-extra}
