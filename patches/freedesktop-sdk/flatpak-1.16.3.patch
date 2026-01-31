@@ -1,0 +1,10 @@
+diff --git a/elements/include/flatpak.yml b/elements/include/flatpak.yml
+index 716765ac8..227020845 100644
+--- a/elements/include/flatpak.yml
++++ b/elements/include/flatpak.yml
+@@ -2,4 +2,4 @@ sources:
+ - kind: git_repo
+   url: github:flatpak/flatpak.git
+   track: 1.1[02468]*
+-  ref: 1.16.2-0-g7c806e340c9e8ece09c92e3cacfcafd1a37875cb
++  ref: 1.16.3-0-gb76f2533c72d65e20bfbc6ef0fb2f6ae9939013d
