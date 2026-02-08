@@ -8,20 +8,20 @@ Subject: [PATCH] Automatically generate keys
  .gitlab-ci/scripts/publish-sysupdate-to-s3.sh |   1 +
  elements/gnomeos-deps/efitools.bst            |  56 +++++-----
  elements/gnomeos-deps/shim.bst                |   4 +-
- elements/gnomeos/debug-layer.bst              |   8 +-
- elements/gnomeos/devel-layer.bst              |   8 +-
+ elements/gnomeos/debug/layer.bst              |   8 +-
+ elements/gnomeos/devel/layer.bst              |   8 +-
  elements/gnomeos/fwupd-efi-signed.bst         |   8 +-
  .../gnomeos/import-deployment-pub-key.bst     |   4 +-
  elements/gnomeos/initramfs/signed-modules.bst |   8 +-
  .../initramfs/signed-nvidia-modules.bst       |   8 +-
  elements/gnomeos/linux-module-cert.bst        |   4 +-
- elements/gnomeos/nvidia-modules-layer.bst     |   8 +-
- elements/gnomeos/nvidia-runtime-layer.bst     |   8 +-
+ elements/gnomeos/nvidia-modules/layer.bst     |   8 +-
+ elements/gnomeos/nvidia-runtime/layer.bst     |   8 +-
  elements/gnomeos/public-keys.bst              |   8 +-
  .../gnomeos/replace-signed-systemd-boot.bst   |   8 +-
  elements/gnomeos/signed-boot-common.bst       |   8 +-
  elements/gnomeos/signed-boot.bst              |  24 ++---
- elements/gnomeos/snapd-layer.bst              |   8 +-
+ elements/gnomeos/snapd/layer.bst              |   8 +-
  project.conf                                  |  32 ++++++
  source-plugins/generated.py                   | 102 ++++++++++++++++++
  utils/enable-local-repo.sh                    |   2 +
@@ -151,10 +151,10 @@ index 597a355cf8..16cffcf102 100644
    directory: boot-keys
  
  build-depends:
-diff --git a/elements/gnomeos/debug-layer.bst b/elements/gnomeos/debug-layer.bst
+diff --git a/elements/gnomeos/debug/layer.bst b/elements/gnomeos/debug/layer.bst
 index 509f0e2c6b..d40d6be27f 100644
---- a/elements/gnomeos/debug-layer.bst
-+++ b/elements/gnomeos/debug-layer.bst
+--- a/elements/gnomeos/debug/layer.bst
++++ b/elements/gnomeos/debug/layer.bst
 @@ -10,10 +10,10 @@ build-depends:
      location: '/sysroot-debug'
  
@@ -170,10 +170,10 @@ index 509f0e2c6b..d40d6be27f 100644
  
  variables:
    repart-seed: 0dc2e590-c162-4ed3-992f-75ddb3fdbb65
-diff --git a/elements/gnomeos/devel-layer.bst b/elements/gnomeos/devel-layer.bst
+diff --git a/elements/gnomeos/devel/layer.bst b/elements/gnomeos/devel/layer.bst
 index a757f5eb36..510953dd67 100644
---- a/elements/gnomeos/devel-layer.bst
-+++ b/elements/gnomeos/devel-layer.bst
+--- a/elements/gnomeos/devel/layer.bst
++++ b/elements/gnomeos/devel/layer.bst
 @@ -15,10 +15,10 @@ build-depends:
      location: '/sysroot-devel'
  
@@ -264,10 +264,10 @@ index d740dfeb8b..1dc663e152 100644
 -  path: files/boot-keys/modules
 +- kind: generated
 +  path: modules
-diff --git a/elements/gnomeos/nvidia-modules-layer.bst b/elements/gnomeos/nvidia-modules-layer.bst
+diff --git a/elements/gnomeos/nvidia-modules/layer.bst b/elements/gnomeos/nvidia-modules/layer.bst
 index c460e95dc1..b57145fbb6 100644
---- a/elements/gnomeos/nvidia-modules-layer.bst
-+++ b/elements/gnomeos/nvidia-modules-layer.bst
+--- a/elements/gnomeos/nvidia-modules/layer.bst
++++ b/elements/gnomeos/nvidia-modules/layer.bst
 @@ -10,10 +10,10 @@ build-depends:
      location: '/sysroot-nvidia-modules'
  
@@ -283,10 +283,10 @@ index c460e95dc1..b57145fbb6 100644
  
  variables:
    repart-seed: a19b0f25-42ac-4c92-8921-d8d4079ec140
-diff --git a/elements/gnomeos/nvidia-runtime-layer.bst b/elements/gnomeos/nvidia-runtime-layer.bst
+diff --git a/elements/gnomeos/nvidia-runtime/layer.bst b/elements/gnomeos/nvidia-runtime/layer.bst
 index 1af4cb2401..4d56c39338 100644
---- a/elements/gnomeos/nvidia-runtime-layer.bst
-+++ b/elements/gnomeos/nvidia-runtime-layer.bst
+--- a/elements/gnomeos/nvidia-runtime/layer.bst
++++ b/elements/gnomeos/nvidia-runtime/layer.bst
 @@ -15,10 +15,10 @@ build-depends:
      location: '/sysroot-nvidia-runtime'
  
@@ -385,10 +385,10 @@ index faa519180e..2a7f886000 100644
 +  path: fstab-tpm2-pcr-public.pem
 +- kind: generated
 +  path: fstab-tpm2-pcr-private.pem
-diff --git a/elements/gnomeos/snapd-layer.bst b/elements/gnomeos/snapd-layer.bst
+diff --git a/elements/gnomeos/snapd/layer.bst b/elements/gnomeos/snapd/layer.bst
 index a16924ed63..1ee112fd9a 100644
---- a/elements/gnomeos/snapd-layer.bst
-+++ b/elements/gnomeos/snapd-layer.bst
+--- a/elements/gnomeos/snapd/layer.bst
++++ b/elements/gnomeos/snapd/layer.bst
 @@ -15,10 +15,10 @@ build-depends:
      location: '/sysroot-snapd'
  
