@@ -5,8 +5,6 @@ sources:
     url: https://git.savannah.gnu.org/git/grub.git
     track: grub-*
     ref: grub-2.14-rc1-0-g280715ec63a3424f5cf1289302cb4ab4e98768f4
-  - kind: patch_queue
-    path: patches/grub
 
   - kind: git_repo
     url: https://git.savannah.gnu.org/git/gnulib.git
