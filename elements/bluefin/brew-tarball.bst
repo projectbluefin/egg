@@ -34,5 +34,5 @@ config:
   - |
     install -d "%{install-root}%{datadir}"
     
-    git archive --format=tar --prefix=linuxbrew/.linuxbrew/ HEAD | \
+    git archive --format=tar --prefix=home/linuxbrew/.linuxbrew/ HEAD | \
     zstd -z -o "%{install-root}%{datadir}/homebrew.tar.zst"
