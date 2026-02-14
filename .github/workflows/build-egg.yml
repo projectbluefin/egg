@@ -152,13 +152,14 @@ jobs:
             -w /src \
             "$BST2_IMAGE" \
             bash -c '
-              ulimit -n 1048576
+              ulimit -n 1048576 || true
               bst --no-interactive \
                   --colors \
                   --config /src/buildstream-ci.conf \
                   --log-file /src/logs/build.log \
+                  build \
                   ${REMOTE_FLAG} \
-                  build oci/bluefin.bst
+                  oci/bluefin.bst
             '
         timeout-minutes: 120
 
@@ -185,11 +186,11 @@ jobs:
             -w /src \
             "$BST2_IMAGE" \
             bash -c '
-              ulimit -n 1048576
+              ulimit -n 1048576 || true
               bst --no-interactive \
                   --config /src/buildstream-ci.conf \
-                  --artifact-remote=grpc://localhost:${CACHE_GRPC_PORT} \
                   artifact push \
+                  --artifact-remote=grpc://localhost:${CACHE_GRPC_PORT} \
                   --deps all \
                   oci/bluefin.bst
             '
@@ -214,7 +215,7 @@ jobs:
             -w /src \
             "$BST2_IMAGE" \
             bash -c '
-              ulimit -n 1048576
+              ulimit -n 1048576 || true
               bst --no-interactive \
                   --config /src/buildstream-ci.conf \
                   artifact checkout --tar - oci/bluefin.bst
