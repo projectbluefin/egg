@@ -1,0 +1,12 @@
+diff --git a/src/nautilus-dbus-launcher.c b/src/nautilus-dbus-launcher.c
+index bd5f5c5ec..b3f8e4db9 100644
+--- a/src/nautilus-dbus-launcher.c
++++ b/src/nautilus-dbus-launcher.c
+@@ -287,6 +287,6 @@ nautilus_dbus_launcher_init (NautilusDBusLauncher *self)
+                                          "org.gtk.Application");
+ 
+     nautilus_dbus_launcher_create_proxy (self->data[NAUTILUS_DBUS_LAUNCHER_CONSOLE],
+-                                         "org.gnome.Console", "/org/gnome/Console",
++                                         "org.gnome.Ptyxis", "/org/gnome/Ptyxis",
+                                          "org.freedesktop.Application");
+ }

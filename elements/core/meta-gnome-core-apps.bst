@@ -8,6 +8,6 @@ depends:
   - gnome-build-meta.bst:core/baobab.bst
   - gnome-build-meta.bst:core/gnome-disk-utility.bst
   - gnome-build-meta.bst:core/gnome-system-monitor.bst
-  - gnome-build-meta.bst:core/nautilus.bst
   - gnome-build-meta.bst:sdk/yelp.bst
+  - core/nautilus.bst
   - core/ptyxis.bst
