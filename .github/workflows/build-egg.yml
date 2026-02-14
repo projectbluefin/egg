@@ -137,10 +137,10 @@ jobs:
         run: |
           NETWORK_FLAG=""
           REMOTE_FLAG=""
-          if [ -f /tmp/bazel-remote.pid ]; then
-            NETWORK_FLAG="--network=host"
-            REMOTE_FLAG="--artifact-remote=grpc://localhost:${CACHE_GRPC_PORT}"
-          fi
+          # if [ -f /tmp/bazel-remote.pid ]; then
+          #   NETWORK_FLAG="--network=host"
+          #   REMOTE_FLAG="--artifact-remote=grpc://localhost:${CACHE_GRPC_PORT}"
+          # fi
 
           podman run --rm \
             --privileged \
