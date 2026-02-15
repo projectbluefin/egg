@@ -159,17 +159,14 @@ jobs:
       - name: Build OCI image with BuildStream
         run: |
           NETWORK_FLAG=""
-          REMOTE_FLAG=""
           if [ -f /tmp/bazel-remote.pid ]; then
             NETWORK_FLAG="--network=host"
-            REMOTE_FLAG="--artifact-remote=url=grpc://localhost:${CACHE_GRPC_PORT},type=storage"
           fi
 
           podman run --rm \
             --privileged \
             --device /dev/fuse \
             ${NETWORK_FLAG} \
-            -e REMOTE_FLAG="${REMOTE_FLAG}" \
             -v "${{ github.workspace }}:/src:rw" \
             -v "$HOME/.cache/buildstream:/root/.cache/buildstream:rw" \
             -w /src \
@@ -181,7 +178,6 @@ jobs:
                   --config /src/buildstream-ci.conf \
                   --log-file /src/logs/build.log \
                   build \
-                  ${REMOTE_FLAG} \
                   oci/bluefin.bst
             '
         timeout-minutes: 120
@@ -203,7 +199,6 @@ jobs:
             --privileged \
             --device /dev/fuse \
             --network=host \
-            -e CACHE_GRPC_PORT="${CACHE_GRPC_PORT}" \
             -v "${{ github.workspace }}:/src:rw" \
             -v "$HOME/.cache/buildstream:/root/.cache/buildstream:rw" \
             -w /src \
@@ -213,7 +208,6 @@ jobs:
               bst --no-interactive \
                   --config /src/buildstream-ci.conf \
                   artifact push \
-                  --artifact-remote=url=grpc://localhost:${CACHE_GRPC_PORT},type=storage \
                   --deps all \
                   oci/bluefin.bst
             '
