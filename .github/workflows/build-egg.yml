@@ -165,6 +165,72 @@ jobs:
           echo "=== BuildStream CI config ==="
           cat buildstream-ci.conf
 
+      # ── Background R2 sync ──────────────────────────────────────────
+      # Start a background loop that pushes new CAS blobs to R2 every
+      # 2 minutes while the build runs. This ensures the R2 cache is
+      # filled incrementally even if the build times out or is cancelled.
+      # The loop runs on the host (not in the container) and has direct
+      # access to ~/.cache/buildstream/ via the bind mount.
+
+      - name: Start background R2 sync
+        env:
+          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+        run: |
+          if [ -z "${R2_ACCESS_KEY}" ]; then
+            echo "R2 secrets not configured, skipping background sync"
+            exit 0
+          fi
+
+          BST_CACHE="$HOME/.cache/buildstream"
+
+          cat > /tmp/r2-sync-loop.sh <<'SYNCSCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          BST_CACHE="$1"
+          R2_BUCKET="$2"
+          INTERVAL=120  # seconds between sync cycles
+
+          echo "[r2-sync] Background sync started (every ${INTERVAL}s)"
+          while true; do
+            sleep "$INTERVAL"
+            echo "[r2-sync] $(date -Iseconds) Starting sync cycle..."
+
+            # CAS: copy only (never delete), skip existing (immutable blobs)
+            rclone copy "${BST_CACHE}/cas/" "r2:${R2_BUCKET}/cas/" \
+              --ignore-existing \
+              --transfers=16 \
+              --checkers=32 \
+              --fast-list \
+              --stats=0 \
+              -q 2>&1 | sed 's/^/[r2-sync] /' || echo "[r2-sync] CAS sync warning (non-fatal)"
+
+            # Artifact refs: sync (metadata can change)
+            rclone sync "${BST_CACHE}/artifacts/" "r2:${R2_BUCKET}/artifacts/" \
+              --transfers=8 \
+              --checkers=16 \
+              --fast-list \
+              --stats=0 \
+              -q 2>&1 | sed 's/^/[r2-sync] /' || echo "[r2-sync] Artifacts sync warning (non-fatal)"
+
+            # Source protos: sync (metadata can change)
+            rclone sync "${BST_CACHE}/source_protos/" "r2:${R2_BUCKET}/source_protos/" \
+              --transfers=8 \
+              --checkers=16 \
+              --fast-list \
+              --stats=0 \
+              -q 2>&1 | sed 's/^/[r2-sync] /' || echo "[r2-sync] Source protos sync warning (non-fatal)"
+
+            echo "[r2-sync] $(date -Iseconds) Sync cycle complete"
+          done
+          SYNCSCRIPT
+          chmod +x /tmp/r2-sync-loop.sh
+
+          nohup /tmp/r2-sync-loop.sh "$BST_CACHE" "$R2_BUCKET" \
+            > /tmp/r2-sync-loop.log 2>&1 &
+          echo $! > /tmp/r2-sync-loop.pid
+          echo "Background R2 sync started (PID $(cat /tmp/r2-sync-loop.pid))"
+
       # ── BuildStream build ─────────────────────────────────────────────
       # Runs inside the bst2 container with:
       # - --privileged: required for bubblewrap sandboxing
@@ -193,20 +259,12 @@ jobs:
             '
         timeout-minutes: 120
 
-      # ── Sync cache to R2 ──────────────────────────────────────────────
-      # Always runs (even on build failure) so that partial progress is
-      # preserved. Every run incrementally grows the R2 cache.
-      #
-      # rclone sync is incremental: CAS blobs are content-addressed and
-      # immutable, so only newly-created files are uploaded. Artifact
-      # refs and source protos are small metadata files.
-      #
-      # We use --ignore-existing for the CAS directory because CAS blobs
-      # are immutable — if a file with the same name exists in R2 it has
-      # the same content (content-addressed by SHA256). This skips the
-      # checksum comparison and is much faster for large caches.
+      # ── Final R2 sync ───────────────────────────────────────────────
+      # Stop the background sync loop, then do one final thorough sync
+      # to catch any blobs created since the last background cycle.
+      # Always runs (even on build failure) so partial progress is saved.
 
-      - name: Sync BuildStream cache to R2
+      - name: Final sync to R2
         if: always()
         continue-on-error: true
         env:
@@ -214,8 +272,22 @@ jobs:
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
         run: |
+          # Stop background sync loop
+          if [ -f /tmp/r2-sync-loop.pid ]; then
+            PID=$(cat /tmp/r2-sync-loop.pid)
+            if kill -0 "$PID" 2>/dev/null; then
+              echo "Stopping background R2 sync (PID $PID)"
+              kill "$PID" || true
+              wait "$PID" 2>/dev/null || true
+            fi
+            rm -f /tmp/r2-sync-loop.pid
+          fi
+
+          echo "=== Background sync log (last 30 lines) ==="
+          tail -30 /tmp/r2-sync-loop.log 2>/dev/null || echo "(no log)"
+
           if [ -z "${R2_ACCESS_KEY}" ]; then
-            echo "R2 secrets not configured, skipping cache sync"
+            echo "R2 secrets not configured, skipping final sync"
             exit 0
           fi
 
@@ -225,9 +297,7 @@ jobs:
           du -sh "${BST_CACHE}/cas" "${BST_CACHE}/artifacts" \
                  "${BST_CACHE}/source_protos" "${BST_CACHE}/sources" 2>/dev/null || true
 
-          echo "=== Syncing CAS objects to R2 ==="
-          # --copy (not sync) ensures we never delete from R2 — only add.
-          # --ignore-existing skips blobs already in R2 (CAS is immutable).
+          echo "=== Final CAS sync to R2 ==="
           rclone copy "${BST_CACHE}/cas/" "r2:${R2_BUCKET}/cas/" \
             --transfers=32 \
             --checkers=64 \
@@ -239,22 +309,21 @@ jobs:
             --stats-one-line \
             -v || echo "::warning::CAS sync to R2 failed"
 
-          echo "=== Syncing artifact refs to R2 ==="
-          # Artifact refs can be updated, so use sync (not copy).
+          echo "=== Final artifact refs sync to R2 ==="
           rclone sync "${BST_CACHE}/artifacts/" "r2:${R2_BUCKET}/artifacts/" \
             --transfers=16 \
             --checkers=32 \
             --fast-list \
             -v || echo "::warning::Artifact refs sync to R2 failed"
 
-          echo "=== Syncing source protos to R2 ==="
+          echo "=== Final source protos sync to R2 ==="
           rclone sync "${BST_CACHE}/source_protos/" "r2:${R2_BUCKET}/source_protos/" \
             --transfers=16 \
             --checkers=32 \
             --fast-list \
             -v || echo "::warning::Source protos sync to R2 failed"
 
-          echo "=== R2 sync complete ==="
+          echo "=== R2 final sync complete ==="
 
       - name: Disk space after build
         if: always()
