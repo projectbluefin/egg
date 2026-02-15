@@ -39,8 +39,13 @@ build:
     echo "==> Building OCI image with BuildStream (inside bst2 container)..."
     just bst build oci/bluefin.bst
 
-    echo "==> Exporting OCI image and loading into podman..."
-    just bst artifact checkout --tar - oci/bluefin.bst | sudo podman load
+    echo "==> Exporting OCI image..."
+    rm -rf .build-out
+    just bst artifact checkout oci/bluefin.bst --directory /src/.build-out
+
+    echo "==> Loading OCI image into podman..."
+    sudo skopeo copy oci:.build-out containers-storage:{{image_name}}:{{image_tag}}
+    rm -rf .build-out
 
     echo "==> Build complete. Image loaded as {{image_name}}:{{image_tag}}"
     sudo podman images | grep -E "{{image_name}}|REPOSITORY" || true
@@ -71,7 +76,7 @@ generate-bootable-image $base_dir=base_dir $filesystem=filesystem:
     fi
 
     echo "==> Installing OS to disk image via bootc..."
-    just bootc install to-disk --composefs-backend \
+    just bootc install to-disk \
         --via-loopback /data/bootable.raw \
         --filesystem "${filesystem}" \
         --wipe \
@@ -165,23 +170,122 @@ boot-vm $base_dir=base_dir:
 # ── Show me the future ────────────────────────────────────────────────
 # The full end-to-end: build the OCI image, install it to a bootable
 # disk, and launch it in a QEMU VM. One command to rule them all.
+# Uses charm.sh gum for styled output when available.
 show-me-the-future:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║              SHOW ME THE FUTURE                             ║"
-    echo "║  Building Bluefin from source and booting it in a VM        ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
+    # ── Helpers ───────────────────────────────────────────────────
+    HAS_GUM=false
+    command -v gum &>/dev/null && [[ -t 1 ]] && HAS_GUM=true
+
+    OVERALL_START=$SECONDS
+
+    format_time() {
+        local secs=$1
+        if (( secs >= 3600 )); then
+            printf '%dh %02dm %02ds' $((secs / 3600)) $(((secs % 3600) / 60)) $((secs % 60))
+        elif (( secs >= 60 )); then
+            printf '%dm %02ds' $((secs / 60)) $((secs % 60))
+        else
+            printf '%ds' "$secs"
+        fi
+    }
+
+    step_start() {
+        local name=$1
+        if $HAS_GUM; then
+            gum style --foreground 212 --bold "◔ ${name}..."
+        else
+            echo "==> ${name}..."
+        fi
+    }
+
+    step_done() {
+        local name=$1 elapsed=$2
+        if $HAS_GUM; then
+            gum style --foreground 46 "● ${name} ($(format_time "$elapsed"))"
+        else
+            echo "==> ${name} done ($(format_time "$elapsed"))"
+        fi
+    }
+
+    step_failed() {
+        local name=$1 elapsed=$2
+        if $HAS_GUM; then
+            gum style --foreground 196 "◍ ${name} FAILED ($(format_time "$elapsed"))"
+        else
+            echo "==> ${name} FAILED ($(format_time "$elapsed"))"
+        fi
+    }
+
+    run_step() {
+        local name=$1; shift
+        step_start "$name"
+        local start=$SECONDS
+        if "$@"; then
+            step_done "$name" $((SECONDS - start))
+        else
+            step_failed "$name" $((SECONDS - start))
+            echo ""
+            if $HAS_GUM; then
+                gum style --foreground 196 --border rounded --align center --padding "1 2" \
+                    'BUILD FAILED' \
+                    "Failed: ${name}" \
+                    "Total elapsed: $(format_time $((SECONDS - OVERALL_START)))"
+            else
+                echo "BUILD FAILED: ${name}"
+                echo "Total elapsed: $(format_time $((SECONDS - OVERALL_START)))"
+            fi
+            exit 1
+        fi
+    }
+
+    # ── Banner ────────────────────────────────────────────────────
+    if $HAS_GUM; then
+        TERM_WIDTH=$(tput cols 2>/dev/null || echo 80)
+        BANNER_WIDTH=$((TERM_WIDTH > 62 ? 60 : TERM_WIDTH - 4))
+        gum style \
+            --foreground 212 \
+            --border-foreground 212 \
+            --border double \
+            --align center \
+            --width $BANNER_WIDTH \
+            --margin "1 2" \
+            --padding "1 4" \
+            'SHOW ME THE FUTURE' \
+            'Building Bluefin from source and booting it in a VM'
+    else
+        echo ""
+        echo "=== SHOW ME THE FUTURE ==="
+        echo "Building Bluefin from source and booting it in a VM"
+    fi
     echo ""
 
-    echo "==> Step 1/3: Building OCI image..."
-    just build
-
+    # ── Steps ─────────────────────────────────────────────────────
+    run_step "Build OCI image" just build
     echo ""
-    echo "==> Step 2/3: Generating bootable disk image..."
-    just generate-bootable-image
-
+    run_step "Bootable disk" just generate-bootable-image
     echo ""
-    echo "==> Step 3/3: Launching VM..."
+
+    # Step 3: VM is interactive -- just announce it
+    step_start "Launch VM"
     just boot-vm
+    echo ""
+
+    # ── Completion ────────────────────────────────────────────────
+    if $HAS_GUM; then
+        gum style --foreground 46 "● Launch VM"
+        echo ""
+        gum style \
+            --foreground 46 \
+            --border-foreground 46 \
+            --border rounded \
+            --align center \
+            --width 42 \
+            --padding "1 2" \
+            'ALL STEPS COMPLETE' \
+            "Total: $(format_time $((SECONDS - OVERALL_START)))"
+    else
+        echo "==> All steps complete. Total: $(format_time $((SECONDS - OVERALL_START)))"
+    fi

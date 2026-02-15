@@ -9,6 +9,7 @@
 *.raw
 *.tar
 .ovmf-vars.fd
+.build-out
 
 # Local AI agent state (opencode sessions, drafts)
 # Skills are committed; everything else is ignored

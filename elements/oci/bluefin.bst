@@ -36,9 +36,19 @@ config:
     - |
       glib-compile-schemas /layer/usr/share/glib-2.0/schemas
 
+    # bootc images must not have both /etc and /usr/etc.
+    # /usr/etc is an ostree implementation detail generated client-side;
+    # the image should only ship /etc.
+    - |
+      if [ -d /layer/usr/etc ]; then
+        mkdir -p /layer/etc
+        cp -a /layer/usr/etc/. /layer/etc/
+        rm -rf /layer/usr/etc
+      fi
+
     - |
       cd "%{install-root}"
-      build-oci -j %{max-jobs} <<EOF
+      build-oci <<EOF
       mode: oci
       gzip: disabled
       images:
