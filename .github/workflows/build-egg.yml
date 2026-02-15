@@ -91,36 +91,97 @@ jobs:
 
           BST_CACHE="$HOME/.cache/buildstream"
           RESTORE_START=$SECONDS
+          
+          # Record cache state before restore
+          echo "=== Cache state before restore ==="
+          CAS_BEFORE=$(du -sb "${BST_CACHE}/cas" 2>/dev/null | cut -f1 || echo 0)
+          ARTIFACTS_BEFORE=$(du -sb "${BST_CACHE}/artifacts" 2>/dev/null | cut -f1 || echo 0)
+          echo "CAS: $((CAS_BEFORE / 1048576)) MB"
+          echo "Artifacts: $((ARTIFACTS_BEFORE / 1048576)) MB"
 
+          echo ""
           echo "=== Restoring CAS from R2 (tar+zstd) ==="
+          CAS_RESTORED=false
           if rclone lsf "r2:${R2_BUCKET}/cas.tar.zst" 2>&1; then
-            if rclone cat "r2:${R2_BUCKET}/cas.tar.zst" \
-              --s3-no-head-object \
-              | zstd -d \
-              | tar xf - -C "${BST_CACHE}/"; then
-              echo "CAS restore completed in $(( SECONDS - RESTORE_START ))s"
+            # Get file size for reporting
+            CAS_REMOTE_SIZE=$(rclone size --json "r2:${R2_BUCKET}/cas.tar.zst" 2>/dev/null | jq -r '.bytes // 0')
+            echo "Remote cas.tar.zst size: $((CAS_REMOTE_SIZE / 1048576)) MB"
+            
+            # Download and validate tar+zstd stream
+            # Use temporary file to validate before extracting
+            TEMP_CAS="/tmp/cas.tar.zst"
+            echo "Downloading cas.tar.zst..."
+            if rclone copy "r2:${R2_BUCKET}/cas.tar.zst" /tmp/ --s3-no-head-object --progress 2>&1; then
+              echo "Validating archive integrity..."
+              if zstd -t "$TEMP_CAS" 2>&1; then
+                echo "Archive validation passed, extracting..."
+                if zstd -d "$TEMP_CAS" | tar xf - -C "${BST_CACHE}/"; then
+                  CAS_RESTORED=true
+                  echo "✓ CAS restore completed in $(( SECONDS - RESTORE_START ))s"
+                else
+                  echo "::warning::CAS tar extraction failed (corrupted archive)"
+                fi
+              else
+                echo "::warning::CAS archive validation failed (corrupted zstd)"
+                echo "Deleting corrupted cache file from R2..."
+                rclone delete "r2:${R2_BUCKET}/cas.tar.zst" 2>&1 || true
+              fi
+              rm -f "$TEMP_CAS"
             else
-              echo "::warning::CAS tar+zstd restore failed (non-fatal)"
+              echo "::warning::CAS download failed"
             fi
           else
             echo "No cas.tar.zst found in R2, skipping CAS restore"
           fi
 
+          echo ""
           echo "=== Restoring artifact refs from R2 ==="
           rclone copy "r2:${R2_BUCKET}/artifacts/" "${BST_CACHE}/artifacts/" \
             --size-only --transfers=16 --fast-list \
             --s3-no-head-object --s3-no-system-metadata \
             -v || echo "::warning::Artifact refs restore failed (non-fatal)"
 
+          echo ""
           echo "=== Restoring source protos from R2 ==="
           rclone copy "r2:${R2_BUCKET}/source_protos/" "${BST_CACHE}/source_protos/" \
             --size-only --transfers=16 --fast-list \
             --s3-no-head-object --s3-no-system-metadata \
             -v || echo "::warning::Source protos restore failed (non-fatal)"
 
-          echo "=== Cache restore summary ==="
-          du -sh "${BST_CACHE}/cas" "${BST_CACHE}/artifacts" \
-                 "${BST_CACHE}/source_protos" "${BST_CACHE}/sources" 2>/dev/null || true
+          echo ""
+          echo "╔══════════════════════════════════════════════════════════════╗"
+          echo "║              CACHE RESTORE REPORT                            ║"
+          echo "╚══════════════════════════════════════════════════════════════╝"
+          
+          # Calculate cache sizes after restore
+          CAS_AFTER=$(du -sb "${BST_CACHE}/cas" 2>/dev/null | cut -f1 || echo 0)
+          ARTIFACTS_AFTER=$(du -sb "${BST_CACHE}/artifacts" 2>/dev/null | cut -f1 || echo 0)
+          PROTOS_AFTER=$(du -sb "${BST_CACHE}/source_protos" 2>/dev/null | cut -f1 || echo 0)
+          SOURCES_AFTER=$(du -sb "${BST_CACHE}/sources" 2>/dev/null | cut -f1 || echo 0)
+          
+          CAS_DELTA=$((CAS_AFTER - CAS_BEFORE))
+          ARTIFACTS_DELTA=$((ARTIFACTS_AFTER - ARTIFACTS_BEFORE))
+          
+          echo "Component Sizes:"
+          echo "  CAS (objects):        $((CAS_AFTER / 1048576)) MB (+$((CAS_DELTA / 1048576)) MB)"
+          echo "  Artifacts (refs):     $((ARTIFACTS_AFTER / 1048576)) MB (+$((ARTIFACTS_DELTA / 1048576)) MB)"
+          echo "  Source protos:        $((PROTOS_AFTER / 1048576)) MB"
+          echo "  Sources (from GHA):   $((SOURCES_AFTER / 1048576)) MB"
+          echo ""
+          
+          if [ "$CAS_RESTORED" = "true" ]; then
+            echo "Cache Status: ✓ RESTORED (CAS validated and extracted)"
+          elif [ "$CAS_AFTER" -lt 10485760 ]; then
+            echo "Cache Status: ✗ EMPTY (cold build, will fetch from upstream)"
+          else
+            echo "Cache Status: ⚠ PARTIAL (CAS restore failed, using previous cache)"
+          fi
+          
+          echo ""
+          echo "Total cache: $(du -sh "${BST_CACHE}" 2>/dev/null | cut -f1)"
+          echo "Time: $(( SECONDS - RESTORE_START ))s"
+          echo "═══════════════════════════════════════════════════════════════"
+          
           df -h /
 
       # ── Generate CI-specific BuildStream config ───────────────────────
@@ -189,6 +250,7 @@ jobs:
 
           echo "[r2-sync] Background sync started (every ${INTERVAL}s)"
           echo "[r2-sync] BST_CACHE=${BST_CACHE} R2_BUCKET=${R2_BUCKET}"
+          echo "[r2-sync] Using atomic upload strategy (temp file + rename)"
 
           while true; do
             sleep "$INTERVAL"
@@ -202,17 +264,27 @@ jobs:
               continue
             fi
 
-            echo "[r2-sync] $(date -Iseconds) Starting tar+zstd upload..."
+            echo "[r2-sync] $(date -Iseconds) Starting atomic tar+zstd upload..."
+            # Upload to temporary name first, then rename atomically
+            # This prevents corrupted partial uploads from being used
+            TEMP_NAME="cas.tar.zst.uploading.$$"
             if tar cf - -C "${BST_CACHE}/" cas/ 2>/dev/null \
               | zstd -T0 -3 2>/dev/null \
               | rclone rcat \
                   --streaming-upload-cutoff 0 \
                   --s3-chunk-size=64M \
                   --s3-upload-concurrency=4 \
-                  "r2:${R2_BUCKET}/cas.tar.zst" 2>&1; then
-              echo "[r2-sync] $(date -Iseconds) CAS snapshot uploaded (${CAS_MB} MB uncompressed)"
+                  "r2:${R2_BUCKET}/${TEMP_NAME}" 2>&1; then
+              echo "[r2-sync] Upload complete, atomically renaming..."
+              if rclone moveto "r2:${R2_BUCKET}/${TEMP_NAME}" "r2:${R2_BUCKET}/cas.tar.zst" 2>&1; then
+                echo "[r2-sync] $(date -Iseconds) ✓ CAS snapshot uploaded (${CAS_MB} MB uncompressed)"
+              else
+                echo "[r2-sync] $(date -Iseconds) Rename failed, cleaning up temp file"
+                rclone delete "r2:${R2_BUCKET}/${TEMP_NAME}" 2>&1 || true
+              fi
             else
-              echo "[r2-sync] $(date -Iseconds) CAS upload failed (exit=$?), will retry next cycle"
+              echo "[r2-sync] $(date -Iseconds) Upload failed (exit=$?), cleaning up"
+              rclone delete "r2:${R2_BUCKET}/${TEMP_NAME}" 2>&1 || true
             fi
 
             # Sync metadata (small, fast)
@@ -288,51 +360,146 @@ jobs:
           fi
 
           BST_CACHE="$HOME/.cache/buildstream"
+          SYNC_START=$SECONDS
 
-          echo "=== Local cache sizes ==="
-          du -sh "${BST_CACHE}/cas" "${BST_CACHE}/artifacts" \
-                 "${BST_CACHE}/source_protos" "${BST_CACHE}/sources" 2>/dev/null || true
+          echo ""
+          echo "=== Local cache sizes before upload ==="
+          CAS_SIZE=$(du -sb "${BST_CACHE}/cas" 2>/dev/null | cut -f1 || echo 0)
+          ARTIFACTS_SIZE=$(du -sb "${BST_CACHE}/artifacts" 2>/dev/null | cut -f1 || echo 0)
+          PROTOS_SIZE=$(du -sb "${BST_CACHE}/source_protos" 2>/dev/null | cut -f1 || echo 0)
+          
+          echo "CAS:           $((CAS_SIZE / 1048576)) MB"
+          echo "Artifacts:     $((ARTIFACTS_SIZE / 1048576)) MB"
+          echo "Source protos: $((PROTOS_SIZE / 1048576)) MB"
 
-          echo "=== Final CAS sync to R2 (tar+zstd stream) ==="
+          echo ""
+          echo "=== Final CAS sync to R2 (atomic tar+zstd upload) ==="
           # Upload entire CAS dir as a single zstd-compressed tar archive.
+          # Uses atomic upload strategy: upload to temp name, then rename.
+          # This prevents corrupted partial uploads from being restored.
           # tar -> zstd (level 9, all threads) -> rclone rcat (streaming multipart upload)
           # Level 9: ~3.2x ratio vs ~2.8x at level 3, saving ~3-4 GB on R2 per archive.
           # Costs ~2-3 min extra compression time (4 cores) but decompression is the same
           # speed at any level (~1.5 GB/s), so every restore benefits from the smaller file.
           # --streaming-upload-cutoff 0: force immediate multipart (don't buffer in RAM)
           # This replaces ~20,000 individual PUT requests with a single multipart upload.
-          UPLOAD_START=$SECONDS
-          tar cf - -C "${BST_CACHE}/" cas/ \
+          CAS_UPLOAD_START=$SECONDS
+          TEMP_NAME="cas.tar.zst.uploading.$$"
+          CAS_UPLOADED=false
+          
+          if tar cf - -C "${BST_CACHE}/" cas/ \
             | zstd -T0 -9 \
             | rclone rcat \
                 --streaming-upload-cutoff 0 \
                 --s3-chunk-size=64M \
                 --s3-upload-concurrency=4 \
-                "r2:${R2_BUCKET}/cas.tar.zst" \
-            || echo "::warning::CAS tar+zstd upload to R2 failed"
-          echo "CAS upload completed in $(( SECONDS - UPLOAD_START ))s"
+                "r2:${R2_BUCKET}/${TEMP_NAME}"; then
+            echo "Upload complete, atomically renaming..."
+            if rclone moveto "r2:${R2_BUCKET}/${TEMP_NAME}" "r2:${R2_BUCKET}/cas.tar.zst"; then
+              CAS_UPLOADED=true
+              echo "✓ CAS upload completed in $(( SECONDS - CAS_UPLOAD_START ))s"
+            else
+              echo "::warning::Atomic rename failed, cleaning up temp file"
+              rclone delete "r2:${R2_BUCKET}/${TEMP_NAME}" || true
+            fi
+          else
+            echo "::warning::CAS tar+zstd upload to R2 failed"
+            rclone delete "r2:${R2_BUCKET}/${TEMP_NAME}" 2>&1 || true
+          fi
 
+          echo ""
           echo "=== Final artifact refs sync to R2 ==="
-          rclone sync "${BST_CACHE}/artifacts/" "r2:${R2_BUCKET}/artifacts/" \
+          ARTIFACTS_UPLOAD_START=$SECONDS
+          ARTIFACTS_UPLOADED=false
+          if rclone sync "${BST_CACHE}/artifacts/" "r2:${R2_BUCKET}/artifacts/" \
             --size-only \
             --transfers=16 \
             --checkers=8 \
             --fast-list \
             --s3-no-head \
             --s3-no-system-metadata \
-            -v || echo "::warning::Artifact refs sync to R2 failed"
+            -v; then
+            ARTIFACTS_UPLOADED=true
+            echo "✓ Artifact refs synced in $(( SECONDS - ARTIFACTS_UPLOAD_START ))s"
+          else
+            echo "::warning::Artifact refs sync to R2 failed"
+          fi
 
+          echo ""
           echo "=== Final source protos sync to R2 ==="
-          rclone sync "${BST_CACHE}/source_protos/" "r2:${R2_BUCKET}/source_protos/" \
+          PROTOS_UPLOAD_START=$SECONDS
+          PROTOS_UPLOADED=false
+          if rclone sync "${BST_CACHE}/source_protos/" "r2:${R2_BUCKET}/source_protos/" \
             --size-only \
             --transfers=16 \
             --checkers=8 \
             --fast-list \
             --s3-no-head \
             --s3-no-system-metadata \
-            -v || echo "::warning::Source protos sync to R2 failed"
+            -v; then
+            PROTOS_UPLOADED=true
+            echo "✓ Source protos synced in $(( SECONDS - PROTOS_UPLOAD_START ))s"
+          else
+            echo "::warning::Source protos sync to R2 failed"
+          fi
 
-          echo "=== R2 final sync complete ==="
+          # Get remote sizes for reporting
+          echo ""
+          echo "Checking remote cache sizes..."
+          CAS_REMOTE_SIZE=$(rclone size --json "r2:${R2_BUCKET}/cas.tar.zst" 2>/dev/null | jq -r '.bytes // 0')
+          ARTIFACTS_REMOTE_COUNT=$(rclone size --json "r2:${R2_BUCKET}/artifacts/" 2>/dev/null | jq -r '.count // 0')
+          PROTOS_REMOTE_COUNT=$(rclone size --json "r2:${R2_BUCKET}/source_protos/" 2>/dev/null | jq -r '.count // 0')
+
+          echo ""
+          echo "╔══════════════════════════════════════════════════════════════╗"
+          echo "║              CACHE UPLOAD REPORT                             ║"
+          echo "╚══════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "Component Upload Status:"
+          if [ "$CAS_UPLOADED" = "true" ]; then
+            echo "  CAS (objects):        ✓ UPLOADED ($((CAS_SIZE / 1048576)) MB → $((CAS_REMOTE_SIZE / 1048576)) MB compressed)"
+            # Calculate compression ratio
+            if [ "$CAS_SIZE" -gt 0 ]; then
+              RATIO=$(( (CAS_SIZE * 100) / CAS_REMOTE_SIZE ))
+              echo "                        Compression ratio: ${RATIO}% (zstd level 9)"
+            fi
+          else
+            echo "  CAS (objects):        ✗ FAILED"
+          fi
+          
+          if [ "$ARTIFACTS_UPLOADED" = "true" ]; then
+            echo "  Artifacts (refs):     ✓ UPLOADED ($((ARTIFACTS_SIZE / 1048576)) MB, ${ARTIFACTS_REMOTE_COUNT} files)"
+          else
+            echo "  Artifacts (refs):     ✗ FAILED"
+          fi
+          
+          if [ "$PROTOS_UPLOADED" = "true" ]; then
+            echo "  Source protos:        ✓ UPLOADED ($((PROTOS_SIZE / 1048576)) MB, ${PROTOS_REMOTE_COUNT} files)"
+          else
+            echo "  Source protos:        ✗ FAILED"
+          fi
+          
+          echo ""
+          echo "Cache Health:"
+          if [ "$CAS_UPLOADED" = "true" ] && [ "$ARTIFACTS_UPLOADED" = "true" ]; then
+            echo "  Status: ✓ COMPLETE (next build will have warm cache)"
+          elif [ "$CAS_UPLOADED" = "true" ]; then
+            echo "  Status: ⚠ PARTIAL (CAS ok, but metadata sync failed)"
+          elif [ "$ARTIFACTS_UPLOADED" = "true" ]; then
+            echo "  Status: ⚠ PARTIAL (metadata ok, but CAS failed - cold build next time)"
+          else
+            echo "  Status: ✗ FAILED (next build will be cold)"
+          fi
+          
+          echo ""
+          echo "Total time: $(( SECONDS - SYNC_START ))s"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "Cache Efficiency Note:"
+          echo "• Warm cache (CAS restored): ~30-40 min build time"
+          echo "• Cold cache (no CAS):       ~120+ min build time"
+          echo "• Cache validated on restore to prevent corruption"
+          echo "• Atomic uploads prevent partial file corruption"
 
       # ── Export OCI image ──────────────────────────────────────────────
       # Uses the Justfile's `export` recipe: checks out the OCI image
