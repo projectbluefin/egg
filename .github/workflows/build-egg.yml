@@ -439,7 +439,7 @@ jobs:
           echo "=== Final artifact refs sync to R2 ==="
           ARTIFACTS_UPLOAD_START=$SECONDS
           ARTIFACTS_UPLOADED=false
-          if rclone sync "${BST_CACHE}/artifacts/" "r2:${R2_BUCKET}/artifacts/" \
+          if rclone copy "${BST_CACHE}/artifacts/" "r2:${R2_BUCKET}/artifacts/" \
             --size-only \
             --transfers=16 \
             --checkers=8 \
@@ -457,7 +457,7 @@ jobs:
           echo "=== Final source protos sync to R2 ==="
           PROTOS_UPLOAD_START=$SECONDS
           PROTOS_UPLOADED=false
-          if rclone sync "${BST_CACHE}/source_protos/" "r2:${R2_BUCKET}/source_protos/" \
+          if rclone copy "${BST_CACHE}/source_protos/" "r2:${R2_BUCKET}/source_protos/" \
             --size-only \
             --transfers=16 \
             --checkers=8 \
