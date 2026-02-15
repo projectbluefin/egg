@@ -161,6 +161,21 @@ config:
       %{install-extra}
 ```
 
+## Other Examples
+
+**Zig SDK** (`bluefin/zig.bst`): The Zig compiler is downloaded as a pre-built tarball and used as a build dependency for Zig projects like Ghostty. It follows the same pattern — `kind: manual`, `strip-binaries: ""`, tar source with SHA256 ref. It's a bootstrap compiler, not a runtime package.
+
+## Dependency Tracking
+
+Pre-built binaries like Tailscale and Zig are **NOT tracked by any automated dependency update mechanism** (Renovate, `bst source track`, etc.). Updates are entirely manual:
+
+1. Check upstream for a new release
+2. Bump the version in the source URL
+3. Update the SHA256 `ref`
+4. Test the build (`bst build elements/bluefin/<package>.bst`)
+
+This is a known gap. When working on pre-built binary elements, always check whether the pinned version is current.
+
 ## Common Mistakes
 
 | Mistake | Symptom | Fix |
@@ -172,3 +187,7 @@ config:
 | Forget `%{install-extra}` | Breaks extensibility convention | Always end install-commands with it |
 | Wrong `install` argument order | Files installed to wrong location | Use `-t DIR FILE` form for clarity |
 | Forget preset file | Service not enabled on boot | Add `80-<name>.preset` with `enable` |
+
+## Related Skills
+
+- **`updating-upstream-refs`** — For the version bump workflow when updating pre-built binary versions. Covers tracking refs, testing builds, and validating changes.
