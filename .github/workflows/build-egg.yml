@@ -40,36 +40,12 @@ jobs:
           key: ${{ github.repository }}-bst-cache
           path: ~/.cache/buildstream
 
-      - name: Mount BuildStream sources (sticky disk)
-        uses: useblacksmith/stickydisk@v1
-        with:
-          key: ${{ github.repository }}-bst-sources
-          path: ~/.cache/buildstream-sources
-
       - name: Prepare BuildStream cache layout
         run: |
-          # Ensure subdirectories exist (first run on fresh sticky disk)
-          mkdir -p ~/.cache/buildstream/{cas,artifacts,source_protos}
-          mkdir -p ~/.cache/buildstream-sources
-
-          # Symlink sources into the expected BuildStream location
-          # BuildStream expects sources at ~/.cache/buildstream/sources/
-          if [ ! -e ~/.cache/buildstream/sources ]; then
-            ln -s ~/.cache/buildstream-sources ~/.cache/buildstream/sources
-          elif [ -d ~/.cache/buildstream/sources ] && [ ! -L ~/.cache/buildstream/sources ]; then
-            # Real dir exists (e.g. from preseed) -- move contents, replace with symlink
-            if [ "$(ls -A ~/.cache/buildstream/sources 2>/dev/null)" ]; then
-              cp -a ~/.cache/buildstream/sources/. ~/.cache/buildstream-sources/
-            fi
-            rm -rf ~/.cache/buildstream/sources
-            ln -s ~/.cache/buildstream-sources ~/.cache/buildstream/sources
-          fi
-
+          mkdir -p ~/.cache/buildstream/{cas,artifacts,source_protos,sources}
           echo "=== Sticky disk status ==="
-          echo "CAS:       $(du -sh ~/.cache/buildstream/cas 2>/dev/null | cut -f1 || echo 'empty')"
-          echo "Artifacts: $(du -sh ~/.cache/buildstream/artifacts 2>/dev/null | cut -f1 || echo 'empty')"
-          echo "Sources:   $(du -sh ~/.cache/buildstream-sources 2>/dev/null | cut -f1 || echo 'empty')"
-          df -h ~/.cache/buildstream ~/.cache/buildstream-sources
+          du -sh ~/.cache/buildstream/{cas,artifacts,source_protos,sources} 2>/dev/null || true
+          df -h ~/.cache/buildstream
 
       - name: Preseed CAS from R2 (cold cache only)
         env:
@@ -149,7 +125,7 @@ jobs:
           echo "=== Preseed summary ==="
           echo "CAS:       $(du -sh "${BST_CACHE}/cas" 2>/dev/null | cut -f1 || echo 'empty')"
           echo "Artifacts: $(find "${BST_CACHE}/artifacts" -type f 2>/dev/null | wc -l) refs"
-          echo "Sources:   $(du -sh "${HOME}/.cache/buildstream-sources" 2>/dev/null | cut -f1 || echo 'empty')"
+          echo "Sources:   $(du -sh "${BST_CACHE}/sources" 2>/dev/null | cut -f1 || echo 'empty')"
 
       - name: Install just
         run: |
@@ -212,11 +188,10 @@ jobs:
         if: always()
         run: |
           echo "=== Disk usage ==="
-          df -h ~/.cache/buildstream ~/.cache/buildstream-sources / 2>/dev/null || df -h /
+          df -h ~/.cache/buildstream / 2>/dev/null || df -h /
           echo ""
           echo "=== BuildStream cache breakdown ==="
-          du -sh ~/.cache/buildstream/{cas,artifacts,source_protos} 2>/dev/null || true
-          echo "Sources: $(du -sh ~/.cache/buildstream-sources 2>/dev/null | cut -f1 || echo 'empty')"
+          du -sh ~/.cache/buildstream/{cas,artifacts,source_protos,sources} 2>/dev/null || true
           echo ""
           echo "=== Total ==="
           du -sh ~/.cache/buildstream/ 2>/dev/null || true
