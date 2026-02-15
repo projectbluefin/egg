@@ -11,7 +11,6 @@ env:
   IMAGE_NAME: egg
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
   BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:f89b4aef847ef040b345acceda15a850219eb8f1
-  R2_BUCKET: bst-cache
 
 # On PRs: group by branch so new pushes cancel stale runs.
 # On main: group by SHA so every push gets its own non-cancellable run.
@@ -47,86 +46,6 @@ jobs:
           du -sh ~/.cache/buildstream/{cas,artifacts,source_protos,sources} 2>/dev/null || true
           df -h ~/.cache/buildstream
 
-      - name: Preseed CAS from R2 (cold cache only)
-        env:
-          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-        run: |
-          BST_CACHE="$HOME/.cache/buildstream"
-          CAS_OBJECTS=$(find "${BST_CACHE}/cas" -type f 2>/dev/null | head -5 | wc -l)
-
-          if [ "$CAS_OBJECTS" -gt 0 ]; then
-            echo "Sticky disk has cached CAS objects -- skipping preseed"
-            echo "CAS size: $(du -sh "${BST_CACHE}/cas" | cut -f1)"
-            ARTIFACT_REFS=$(find "${BST_CACHE}/artifacts" -type f 2>/dev/null | wc -l)
-            echo "Artifact refs: ${ARTIFACT_REFS}"
-            exit 0
-          fi
-
-          echo "Sticky disk is cold -- preseeding from R2 archive"
-
-          if [ -z "${R2_ACCESS_KEY}" ]; then
-            echo "::warning::R2 secrets not configured and sticky disk is cold -- full build expected (~2h)"
-            exit 0
-          fi
-
-          # Install rclone (only needed for preseed on cold disk)
-          curl -fsSL https://rclone.org/install.sh | sudo bash
-
-          # Configure rclone for Cloudflare R2
-          mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf <<RCONF
-          [r2]
-          type = s3
-          provider = Cloudflare
-          access_key_id = ${R2_ACCESS_KEY}
-          secret_access_key = ${R2_SECRET_KEY}
-          endpoint = ${R2_ENDPOINT}
-          no_check_bucket = true
-          RCONF
-          sed -i 's/^[[:space:]]*//' ~/.config/rclone/rclone.conf
-
-          # Check if R2 has a CAS archive
-          CAS_REMOTE_SIZE=$(rclone size --json "r2:${R2_BUCKET}/cas.tar.zst" 2>/dev/null | jq -r '.bytes // 0')
-          if [ "${CAS_REMOTE_SIZE:-0}" -le 0 ]; then
-            echo "::warning::No cas.tar.zst in R2 -- cold build expected"
-            exit 0
-          fi
-
-          echo "Downloading cas.tar.zst ($((CAS_REMOTE_SIZE / 1048576)) MB)..."
-          TEMP_CAS=$(mktemp /tmp/cas.tar.zst.XXXXXX)
-          if rclone copyto "r2:${R2_BUCKET}/cas.tar.zst" "${TEMP_CAS}" --progress; then
-            ACTUAL_SIZE=$(stat --format=%s "${TEMP_CAS}" 2>/dev/null || echo 0)
-            if [ "$ACTUAL_SIZE" -lt 1000 ]; then
-              echo "::warning::Downloaded file is suspiciously small (${ACTUAL_SIZE} bytes) -- cold build"
-            else
-              echo "Validating archive integrity..."
-              if zstd -t "${TEMP_CAS}"; then
-                echo "Extracting into sticky disk..."
-                zstd -d "${TEMP_CAS}" | tar xf - -C "${BST_CACHE}/"
-                echo "CAS preseed complete: $(du -sh "${BST_CACHE}/cas" | cut -f1)"
-              else
-                echo "::warning::Archive validation failed -- cold build"
-              fi
-            fi
-          else
-            echo "::warning::R2 download failed -- cold build"
-          fi
-          rm -f "${TEMP_CAS}"
-
-          # Also restore artifact refs and source protos metadata
-          rclone copy "r2:${R2_BUCKET}/artifacts/" "${BST_CACHE}/artifacts/" \
-            --size-only --transfers=16 --fast-list -q || true
-          rclone copy "r2:${R2_BUCKET}/source_protos/" "${BST_CACHE}/source_protos/" \
-            --size-only --transfers=16 --fast-list -q || true
-
-          echo ""
-          echo "=== Preseed summary ==="
-          echo "CAS:       $(du -sh "${BST_CACHE}/cas" 2>/dev/null | cut -f1 || echo 'empty')"
-          echo "Artifacts: $(find "${BST_CACHE}/artifacts" -type f 2>/dev/null | wc -l) refs"
-          echo "Sources:   $(du -sh "${BST_CACHE}/sources" 2>/dev/null | cut -f1 || echo 'empty')"
-
       - name: Install just
         run: |
           # just is in ubuntu 24.04 universe; skopeo/podman are pre-installed
@@ -143,7 +62,7 @@ jobs:
       # - cache-buildtrees: never -> save disk (we only need final artifacts)
       #
       # No remote artifact server is configured. BuildStream uses only:
-      # 1. Local disk cache (persisted by sticky disks)
+      # 1. Local disk cache (persisted by sticky disk)
       # 2. Upstream GNOME caches defined in project.conf (read-only)
 
       - name: Generate BuildStream CI config
