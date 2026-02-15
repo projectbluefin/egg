@@ -189,6 +189,29 @@ jobs:
           
           df -h /
 
+      - name: Post-restore cache health check
+        run: |
+          BST_CACHE="$HOME/.cache/buildstream"
+          echo "=== Post-restore cache health check ==="
+
+          # Check CAS directory has content
+          CAS_OBJECTS=$(find "${BST_CACHE}/cas" -type f 2>/dev/null | head -100 | wc -l)
+          ARTIFACT_REFS=$(find "${BST_CACHE}/artifacts" -type f 2>/dev/null | wc -l)
+
+          echo "CAS objects (sampled): ${CAS_OBJECTS}+"
+          echo "Artifact refs: ${ARTIFACT_REFS}"
+          echo "CAS size: $(du -sh "${BST_CACHE}/cas" 2>/dev/null | cut -f1 || echo 'empty')"
+
+          if [ "$CAS_OBJECTS" -gt 0 ] && [ "$ARTIFACT_REFS" -gt 0 ]; then
+            echo "Health check: PASSED (cache looks populated)"
+          elif [ "$CAS_OBJECTS" -gt 0 ]; then
+            echo "Health check: PARTIAL (CAS objects present but no artifact refs)"
+            echo "::warning::Cache has CAS objects but no artifact refs — BuildStream may not recognize cached artifacts"
+          else
+            echo "Health check: COLD (no cached objects, full build expected)"
+            echo "Expected build time: ~120 minutes"
+          fi
+
       # ── Generate CI-specific BuildStream config ───────────────────────
       # Tuned per gnome-build-meta CI patterns:
       # - on-error: continue  -> find ALL failures, don't stop at first
