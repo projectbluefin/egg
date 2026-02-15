@@ -210,10 +210,9 @@ build-depends:
   - bluefin/zig.bst
 
 depends:
+  - gnome-build-meta.bst:sdk/gtk.bst
+  - gnome-build-meta.bst:sdk/libadwaita.bst
   - freedesktop-sdk.bst:public-stacks/runtime-minimal.bst
-
-variables:
-  strip-binaries: ""
 
 config:
   build-commands:
@@ -268,18 +267,9 @@ config:
         "zig-deps-git/31268548fe3276c0e95f318a6c0d2ab10565b58d.tar.gz" \
         "zigimg-0.1.0-lly-O6N2EABOxke8dqyzCwhtUCAafqP35zC7wsZ4Ddxj"
 
-    # Build Ghostty with offline mode
-    - |
-      export ZIG_GLOBAL_CACHE_DIR="/tmp/zig-cache"
-      export ZIG_LIB_DIR="%{libdir}/zig"
-      zig build \
-        --prefix /usr \
-        --system "$ZIG_GLOBAL_CACHE_DIR/p" \
-        -Doptimize=ReleaseFast \
-        -Dcpu=baseline \
-        -Dpie=true
-
   install-commands:
+    # Build and install Ghostty in a single step with DESTDIR.
+    # Flags match upstream PACKAGING.md + Arch Linux conventions.
     - |
       export ZIG_GLOBAL_CACHE_DIR="/tmp/zig-cache"
       export ZIG_LIB_DIR="%{libdir}/zig"
@@ -289,4 +279,6 @@ config:
         --system "$ZIG_GLOBAL_CACHE_DIR/p" \
         -Doptimize=ReleaseFast \
         -Dcpu=baseline \
-        -Dpie=true
+        -Dpie=true \
+        -Dversion-string=1.2.3 \
+        -Dgtk-x11=true
