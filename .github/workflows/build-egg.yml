@@ -64,7 +64,7 @@ jobs:
       #   - 1 GET request instead of ~20,000 GETs + 256 LISTs + 20,000 HEADs
       #   - Pure streaming I/O (rclone cat | zstd -d | tar x)
       #   - zstd decompression at ~1.5 GB/s is faster than network delivery
-      #   - ~21GB compresses to ~8-12GB, cutting transfer time in half
+      #   - ~21GB compresses to ~7-10GB with zstd -9, cutting transfer time significantly
       #
       # Artifact refs and source protos are small metadata dirs (~12MB)
       # kept as individual files for incremental sync.
@@ -145,9 +145,6 @@ jobs:
           du -sh "${BST_CACHE}/cas" "${BST_CACHE}/artifacts" \
                  "${BST_CACHE}/source_protos" "${BST_CACHE}/sources" 2>/dev/null || true
           df -h /
-
-      - name: Disk space before build
-        run: df -h /
 
       # ── Generate CI-specific BuildStream config ───────────────────────
       # Tuned per gnome-build-meta CI patterns:
@@ -296,6 +293,16 @@ jobs:
             '
         timeout-minutes: 120
 
+      - name: Disk and cache usage after build
+        if: always()
+        run: |
+          echo "=== Disk usage ==="
+          df -h /
+          echo "=== BuildStream cache breakdown ==="
+          du -sh ~/.cache/buildstream/{cas,artifacts,source_protos,sources,logs,build,tmp} 2>/dev/null || true
+          echo "=== Total cache ==="
+          du -sh ~/.cache/buildstream/ 2>/dev/null || true
+
       # ── Final R2 sync ───────────────────────────────────────────────
       # Stop the background sync loop, then upload the definitive cache.
       # CAS is uploaded as a single tar+zstd archive (replaces individual files).
@@ -337,12 +344,15 @@ jobs:
 
           echo "=== Final CAS sync to R2 (tar+zstd stream) ==="
           # Upload entire CAS dir as a single zstd-compressed tar archive.
-          # tar -> zstd (level 3, all threads) -> rclone rcat (streaming multipart upload)
+          # tar -> zstd (level 9, all threads) -> rclone rcat (streaming multipart upload)
+          # Level 9: ~3.2x ratio vs ~2.8x at level 3, saving ~3-4 GB on R2 per archive.
+          # Costs ~2-3 min extra compression time (4 cores) but decompression is the same
+          # speed at any level (~1.5 GB/s), so every restore benefits from the smaller file.
           # --streaming-upload-cutoff 0: force immediate multipart (don't buffer in RAM)
           # This replaces ~20,000 individual PUT requests with a single multipart upload.
           UPLOAD_START=$SECONDS
           tar cf - -C "${BST_CACHE}/" cas/ \
-            | zstd -T0 -3 \
+            | zstd -T0 -9 \
             | rclone rcat \
                 --streaming-upload-cutoff 0 \
                 --s3-chunk-size=64M \
@@ -372,10 +382,6 @@ jobs:
             -v || echo "::warning::Source protos sync to R2 failed"
 
           echo "=== R2 final sync complete ==="
-
-      - name: Disk space after build
-        if: always()
-        run: df -h /
 
       # ── Export OCI image ──────────────────────────────────────────────
       # Stream the OCI tar from BuildStream directly into podman on the
