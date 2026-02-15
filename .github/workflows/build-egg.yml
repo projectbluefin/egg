@@ -62,12 +62,16 @@ jobs:
       # proxies to Cloudflare R2 via S3.
 
       - name: Start bazel-remote cache proxy
-        if: ${{ secrets.R2_ACCESS_KEY != '' }}
         env:
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
         run: |
+          if [ -z "${R2_ACCESS_KEY}" ]; then
+            echo "R2 secrets not configured, skipping cache proxy"
+            exit 0
+          fi
+
           curl -fsSL -o /tmp/bazel-remote \
             "https://github.com/buchgr/bazel-remote/releases/download/v2.6.1/bazel-remote-2.6.1-linux-amd64"
           echo "025d53aeb03a7fdd4a0e76262a5ae9eeee9f64d53ca510deff1c84cf3f276784  /tmp/bazel-remote" | sha256sum -c -
