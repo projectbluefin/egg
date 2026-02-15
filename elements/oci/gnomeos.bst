@@ -45,7 +45,7 @@ config:
     - |
       cd "%{install-root}"
       build-oci <<EOF
-      mode: oci
+      mode: oci-archive
       gzip: disabled
       images:
       - os: linux
