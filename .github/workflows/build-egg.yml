@@ -58,15 +58,16 @@ jobs:
           mkdir -p "$HOME/.cache/buildstream/source_protos"
 
       # ── Restore cache from R2 ─────────────────────────────────────────
-      # Use rclone to copy BuildStream's CAS and artifact metadata from
-      # Cloudflare R2. Key optimizations:
-      # - --size-only: CAS filenames ARE SHA256 hashes, so if a file
-      #   exists with the right size it is correct. Avoids expensive
-      #   per-object HEAD requests for modtime comparison.
-      # - --s3-no-head-object: skip HEAD before GET (saves 1 API call/file)
-      # - --no-update-modtime: don't set local modtime after download
-      # - --buffer-size 0: stream directly to disk, don't buffer in RAM
-      # - rclone copy (not sync): never delete local files
+      # CAS objects (the bulk of the cache, ~20GB+) are stored as a single
+      # zstd-compressed tar archive in R2. This is orders of magnitude
+      # faster than downloading 20,000+ individual files:
+      #   - 1 GET request instead of ~20,000 GETs + 256 LISTs + 20,000 HEADs
+      #   - Pure streaming I/O (rclone cat | zstd -d | tar x)
+      #   - zstd decompression at ~1.5 GB/s is faster than network delivery
+      #   - ~21GB compresses to ~8-12GB, cutting transfer time in half
+      #
+      # Artifact refs and source protos are small metadata dirs (~12MB)
+      # kept as individual files for incremental sync.
 
       - name: Install rclone
         run: |
@@ -100,19 +101,23 @@ jobs:
 
           BST_CACHE="$HOME/.cache/buildstream"
 
-          echo "=== Restoring CAS objects from R2 ==="
-          rclone copy "r2:${R2_BUCKET}/cas/" "${BST_CACHE}/cas/" \
-            --size-only \
-            --transfers=32 \
-            --checkers=16 \
-            --fast-list \
-            --s3-no-head-object \
-            --s3-no-system-metadata \
-            --no-update-modtime \
-            --buffer-size=0 \
-            --stats=10s \
-            --stats-one-line \
-            -v || echo "::warning::CAS restore from R2 failed (non-fatal)"
+          echo "=== Restoring CAS objects from R2 (tar+zstd stream) ==="
+          # Single GET request for the entire CAS instead of ~20,000 individual GETs.
+          # Stream: R2 -> rclone cat -> zstd decompress -> tar extract
+          # Falls back gracefully on first run when cas.tar.zst doesn't exist yet.
+          RESTORE_START=$SECONDS
+          if rclone lsf "r2:${R2_BUCKET}/cas.tar.zst" >/dev/null 2>&1; then
+            if rclone cat "r2:${R2_BUCKET}/cas.tar.zst" \
+              --s3-no-head-object \
+              | zstd -d \
+              | tar xf - -C "${BST_CACHE}/"; then
+              echo "CAS restore completed in $(( SECONDS - RESTORE_START ))s"
+            else
+              echo "::warning::CAS tar+zstd restore failed (non-fatal, will build from scratch)"
+            fi
+          else
+            echo "No cas.tar.zst found in R2 (first run?), skipping CAS restore"
+          fi
 
           echo "=== Restoring artifact refs from R2 ==="
           rclone copy "r2:${R2_BUCKET}/artifacts/" "${BST_CACHE}/artifacts/" \
@@ -184,9 +189,11 @@ jobs:
           cat buildstream-ci.conf
 
       # ── Background R2 sync ──────────────────────────────────────────
-      # Start a background loop that pushes new CAS blobs to R2 every
-      # 2 minutes while the build runs. This ensures the R2 cache is
-      # filled incrementally even if the build times out or is cancelled.
+      # Incrementally push new CAS blobs to R2 every 2 minutes while the
+      # build runs, using per-file rclone copy. This ensures partial
+      # progress is saved even if the build times out or is cancelled.
+      # The final sync step creates the definitive tar+zstd archive;
+      # these per-file uploads serve as a safety net only.
       # The loop runs on the host (not in the container) and has direct
       # access to ~/.cache/buildstream/ via the bind mount.
 
@@ -290,8 +297,9 @@ jobs:
         timeout-minutes: 120
 
       # ── Final R2 sync ───────────────────────────────────────────────
-      # Stop the background sync loop, then do one final thorough sync
-      # to catch any blobs created since the last background cycle.
+      # Stop the background sync loop, then upload the definitive cache.
+      # CAS is uploaded as a single tar+zstd archive (replaces individual files).
+      # Metadata dirs (artifacts, source_protos) are synced per-file (small, ~12MB).
       # Always runs (even on build failure) so partial progress is saved.
 
       - name: Final sync to R2
@@ -327,22 +335,21 @@ jobs:
           du -sh "${BST_CACHE}/cas" "${BST_CACHE}/artifacts" \
                  "${BST_CACHE}/source_protos" "${BST_CACHE}/sources" 2>/dev/null || true
 
-          echo "=== Final CAS sync to R2 ==="
-          # --no-traverse: don't list all of R2, check each local file individually
-          # --size-only: filename=hash, size match = correct, skip modtime HEAD
-          # --s3-no-head: skip HEAD after PUT (trust the upload succeeded)
-          rclone copy "${BST_CACHE}/cas/" "r2:${R2_BUCKET}/cas/" \
-            --no-traverse \
-            --size-only \
-            --transfers=32 \
-            --checkers=8 \
-            --s3-no-head \
-            --s3-upload-concurrency=8 \
-            --s3-chunk-size=16M \
-            --s3-no-system-metadata \
-            --stats=10s \
-            --stats-one-line \
-            -v || echo "::warning::CAS sync to R2 failed"
+          echo "=== Final CAS sync to R2 (tar+zstd stream) ==="
+          # Upload entire CAS dir as a single zstd-compressed tar archive.
+          # tar -> zstd (level 3, all threads) -> rclone rcat (streaming multipart upload)
+          # --streaming-upload-cutoff 0: force immediate multipart (don't buffer in RAM)
+          # This replaces ~20,000 individual PUT requests with a single multipart upload.
+          UPLOAD_START=$SECONDS
+          tar cf - -C "${BST_CACHE}/" cas/ \
+            | zstd -T0 -3 \
+            | rclone rcat \
+                --streaming-upload-cutoff 0 \
+                --s3-chunk-size=64M \
+                --s3-upload-concurrency=4 \
+                "r2:${R2_BUCKET}/cas.tar.zst" \
+            || echo "::warning::CAS tar+zstd upload to R2 failed"
+          echo "CAS upload completed in $(( SECONDS - UPLOAD_START ))s"
 
           echo "=== Final artifact refs sync to R2 ==="
           rclone sync "${BST_CACHE}/artifacts/" "r2:${R2_BUCKET}/artifacts/" \
