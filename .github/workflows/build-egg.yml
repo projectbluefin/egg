@@ -149,6 +149,48 @@ jobs:
             cat buildstream-ci.conf
           fi
 
+      # ── Seed R2 cache with upstream artifacts ────────────────────────
+      # Pull all available artifacts from GNOME upstream into the local
+      # CAS, then push them to R2 via the cache proxy. This ensures R2
+      # accumulates upstream artifacts over time so future builds can
+      # pull entirely from R2 instead of depending on GNOME's server.
+      # Non-fatal: this is an optimization, not a build requirement.
+
+      - name: Seed R2 cache with upstream artifacts
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ ! -f /tmp/bazel-remote.pid ]; then
+            echo "Cache proxy not running, skipping seed"
+            exit 0
+          fi
+
+          podman run --rm \
+            --privileged \
+            --device /dev/fuse \
+            --network=host \
+            -v "${{ github.workspace }}:/src:rw" \
+            -v "$HOME/.cache/buildstream:/root/.cache/buildstream:rw" \
+            -w /src \
+            "$BST2_IMAGE" \
+            bash -c '
+              ulimit -n 1048576 || true
+              echo "=== Pulling artifacts from GNOME upstream ==="
+              bst --no-interactive \
+                  --config /src/buildstream-ci.conf \
+                  artifact pull \
+                  --deps all \
+                  oci/bluefin.bst || true
+
+              echo "=== Pushing fetched artifacts to R2 cache ==="
+              bst --no-interactive \
+                  --config /src/buildstream-ci.conf \
+                  artifact push \
+                  --deps all \
+                  --ignore-project-artifact-remotes \
+                  oci/bluefin.bst || true
+            '
+
       # ── BuildStream build ─────────────────────────────────────────────
       # Runs inside the bst2 container with:
       # - --privileged: required for bubblewrap sandboxing
