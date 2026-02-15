@@ -68,19 +68,16 @@ export:
     rm -rf .build-out
     just bst artifact checkout oci/bluefin.bst --directory /src/.build-out
 
-    echo "==> Loading OCI image into podman..."
-    $SUDO_CMD skopeo copy oci:.build-out "containers-storage:{{image_name}}:{{image_tag}}-raw"
+    # Load the multi-layer OCI image and squash into a single layer.
+    # BuildStream produces separate layers (platform + gnomeos + bluefin);
+    # bootc and registry distribution work better with one squashed layer.
+    # Using podman (not skopeo) ensures the squashed view is preserved on push.
+    echo "==> Loading and squashing OCI image..."
+    IMAGE_ID=$($SUDO_CMD podman pull -q oci:.build-out)
     rm -rf .build-out
-
-    # bootc requires images to not have both /etc and /usr/etc.
-    # Parent layers from freedesktop-sdk may contain /usr/etc that we
-    # cannot fix at the BuildStream level, so we fix the combined image
-    # with a Containerfile fixup layer.
-    echo "==> Fixing /etc layout for bootc compatibility..."
-    printf 'FROM %s\nRUN if [ -d /usr/etc ]; then cp -a /usr/etc/. /etc/ && rm -rf /usr/etc; fi\n' \
-        "{{image_name}}:{{image_tag}}-raw" \
+    printf 'FROM %s\n' "$IMAGE_ID" \
         | $SUDO_CMD podman build --pull=never --security-opt label=type:unconfined_t --squash-all -t "{{image_name}}:{{image_tag}}" -f - .
-    $SUDO_CMD podman rmi "{{image_name}}:{{image_tag}}-raw" || true
+    $SUDO_CMD podman rmi "$IMAGE_ID" || true
 
     echo "==> Export complete. Image loaded as {{image_name}}:{{image_tag}}"
     $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
