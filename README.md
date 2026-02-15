@@ -2,9 +2,15 @@
 
 # egg
 
-Bluefin's Primal Form -- build a custom GNOME Linux desktop entirely from source on your laptop.
+Bluefin's Primal Form -- smol. Local workflows prioritized.
 
-No CI pipelines. No cloud infrastructure. No container registries. Just `podman`, `just`, and disk space.
+## Trying it: 
+
+1. Clone this repo
+2. `just show-me-the-future`
+3. VM with Bluefin built on GNOME OS!
+4. WIP: Pushing to a locally run registry for super fast development!
+   - But also means a Dakotaraptor system can build itself. On a fast machine this can take about 2 minutes once the initial caching is complete!  
 
 ## Make It Yours
 
