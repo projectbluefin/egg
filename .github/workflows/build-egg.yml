@@ -71,14 +71,85 @@ jobs:
           echo "Sources:   $(du -sh ~/.cache/buildstream-sources 2>/dev/null | cut -f1 || echo 'empty')"
           df -h ~/.cache/buildstream ~/.cache/buildstream-sources
 
-      # ── Restore cache from R2 ─────────────────────────────────────────
-      # CAS objects are stored as a single zstd-compressed tar in R2.
-      # Artifact refs and source protos are small metadata dirs (~12MB).
-
-      - name: Install rclone
+      - name: Preseed CAS from R2 (cold cache only)
+        env:
+          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
         run: |
+          BST_CACHE="$HOME/.cache/buildstream"
+          CAS_OBJECTS=$(find "${BST_CACHE}/cas" -type f 2>/dev/null | head -5 | wc -l)
+
+          if [ "$CAS_OBJECTS" -gt 0 ]; then
+            echo "Sticky disk has cached CAS objects -- skipping preseed"
+            echo "CAS size: $(du -sh "${BST_CACHE}/cas" | cut -f1)"
+            ARTIFACT_REFS=$(find "${BST_CACHE}/artifacts" -type f 2>/dev/null | wc -l)
+            echo "Artifact refs: ${ARTIFACT_REFS}"
+            exit 0
+          fi
+
+          echo "Sticky disk is cold -- preseeding from R2 archive"
+
+          if [ -z "${R2_ACCESS_KEY}" ]; then
+            echo "::warning::R2 secrets not configured and sticky disk is cold -- full build expected (~2h)"
+            exit 0
+          fi
+
+          # Install rclone (only needed for preseed on cold disk)
           curl -fsSL https://rclone.org/install.sh | sudo bash
-          rclone version
+
+          # Configure rclone for Cloudflare R2
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<RCONF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${R2_ACCESS_KEY}
+          secret_access_key = ${R2_SECRET_KEY}
+          endpoint = ${R2_ENDPOINT}
+          no_check_bucket = true
+          RCONF
+          sed -i 's/^[[:space:]]*//' ~/.config/rclone/rclone.conf
+
+          # Check if R2 has a CAS archive
+          CAS_REMOTE_SIZE=$(rclone size --json "r2:${R2_BUCKET}/cas.tar.zst" 2>/dev/null | jq -r '.bytes // 0')
+          if [ "${CAS_REMOTE_SIZE:-0}" -le 0 ]; then
+            echo "::warning::No cas.tar.zst in R2 -- cold build expected"
+            exit 0
+          fi
+
+          echo "Downloading cas.tar.zst ($((CAS_REMOTE_SIZE / 1048576)) MB)..."
+          TEMP_CAS=$(mktemp /tmp/cas.tar.zst.XXXXXX)
+          if rclone copyto "r2:${R2_BUCKET}/cas.tar.zst" "${TEMP_CAS}" --progress; then
+            ACTUAL_SIZE=$(stat --format=%s "${TEMP_CAS}" 2>/dev/null || echo 0)
+            if [ "$ACTUAL_SIZE" -lt 1000 ]; then
+              echo "::warning::Downloaded file is suspiciously small (${ACTUAL_SIZE} bytes) -- cold build"
+            else
+              echo "Validating archive integrity..."
+              if zstd -t "${TEMP_CAS}"; then
+                echo "Extracting into sticky disk..."
+                zstd -d "${TEMP_CAS}" | tar xf - -C "${BST_CACHE}/"
+                echo "CAS preseed complete: $(du -sh "${BST_CACHE}/cas" | cut -f1)"
+              else
+                echo "::warning::Archive validation failed -- cold build"
+              fi
+            fi
+          else
+            echo "::warning::R2 download failed -- cold build"
+          fi
+          rm -f "${TEMP_CAS}"
+
+          # Also restore artifact refs and source protos metadata
+          rclone copy "r2:${R2_BUCKET}/artifacts/" "${BST_CACHE}/artifacts/" \
+            --size-only --transfers=16 --fast-list -q || true
+          rclone copy "r2:${R2_BUCKET}/source_protos/" "${BST_CACHE}/source_protos/" \
+            --size-only --transfers=16 --fast-list -q || true
+
+          echo ""
+          echo "=== Preseed summary ==="
+          echo "CAS:       $(du -sh "${BST_CACHE}/cas" 2>/dev/null | cut -f1 || echo 'empty')"
+          echo "Artifacts: $(find "${BST_CACHE}/artifacts" -type f 2>/dev/null | wc -l) refs"
+          echo "Sources:   $(du -sh "${HOME}/.cache/buildstream-sources" 2>/dev/null | cut -f1 || echo 'empty')"
 
       - name: Install just
         run: |
@@ -86,167 +157,18 @@ jobs:
           sudo apt-get install -y just
           just --version
 
-      - name: Restore BuildStream cache from R2
-        env:
-          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-        run: |
-          if [ -z "${R2_ACCESS_KEY}" ]; then
-            echo "R2 secrets not configured, skipping cache restore"
-            exit 0
-          fi
-
-          # Configure rclone for Cloudflare R2 (S3-compatible)
-          mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf <<EOF
-          [r2]
-          type = s3
-          provider = Cloudflare
-          access_key_id = $R2_ACCESS_KEY
-          secret_access_key = $R2_SECRET_KEY
-          endpoint = $R2_ENDPOINT
-          no_check_bucket = true
-          EOF
-          # Strip leading whitespace from config (heredoc is indented in YAML)
-          sed -i 's/^[[:space:]]*//' ~/.config/rclone/rclone.conf
-
-          BST_CACHE="$HOME/.cache/buildstream"
-          RESTORE_START=$SECONDS
-          
-          # Record cache state before restore
-          echo "=== Cache state before restore ==="
-          CAS_BEFORE=$(du -sb "${BST_CACHE}/cas" 2>/dev/null | cut -f1 || echo 0)
-          ARTIFACTS_BEFORE=$(du -sb "${BST_CACHE}/artifacts" 2>/dev/null | cut -f1 || echo 0)
-          echo "CAS: $((CAS_BEFORE / 1048576)) MB"
-          echo "Artifacts: $((ARTIFACTS_BEFORE / 1048576)) MB"
-
-          echo ""
-          echo "=== Restoring CAS from R2 (tar+zstd) ==="
-          CAS_RESTORED=false
-          TEMP_DIR=$(mktemp -d /tmp/r2-restore.XXXXXX)
-          CAS_REMOTE_SIZE=$(rclone size --json "r2:${R2_BUCKET}/cas.tar.zst" 2>/dev/null | jq -r '.bytes // 0')
-          if [ "${CAS_REMOTE_SIZE:-0}" -gt 0 ]; then
-            echo "Remote cas.tar.zst size: $((CAS_REMOTE_SIZE / 1048576)) MB"
-            
-            # Download to dedicated temp directory, then validate before extracting
-            TEMP_CAS="${TEMP_DIR}/cas.tar.zst"
-            echo "Downloading cas.tar.zst (${CAS_REMOTE_SIZE} bytes = $((CAS_REMOTE_SIZE / 1048576)) MB)..."
-            if rclone copyto "r2:${R2_BUCKET}/cas.tar.zst" "${TEMP_CAS}" --progress 2>&1; then
-              # Verify the file actually landed on disk (rclone can exit 0 with 0 bytes)
-              ACTUAL_SIZE=$(stat --format=%s "${TEMP_CAS}" 2>/dev/null || echo 0)
-              if [ ! -f "${TEMP_CAS}" ]; then
-                echo "::warning::rclone reported success but no file was written"
-              elif [ "$ACTUAL_SIZE" -lt 1000 ]; then
-                echo "::warning::Downloaded file is suspiciously small (${ACTUAL_SIZE} bytes vs expected ${CAS_REMOTE_SIZE})"
-              else
-                echo "Downloaded ${ACTUAL_SIZE} bytes (expected ${CAS_REMOTE_SIZE})"
-                echo "Validating archive integrity..."
-                if zstd -t "$TEMP_CAS" 2>&1; then
-                  echo "Archive validation passed, extracting..."
-                  if zstd -d "$TEMP_CAS" | tar xf - -C "${BST_CACHE}/"; then
-                    CAS_RESTORED=true
-                    echo "CAS restore completed in $(( SECONDS - RESTORE_START ))s"
-                  else
-                    echo "::warning::CAS tar extraction failed (corrupted archive)"
-                  fi
-                else
-                  echo "::warning::CAS archive validation failed — skipping (will not delete from R2)"
-                  echo "::warning::Archive may need investigation; next successful build will overwrite it"
-                fi
-              fi
-            else
-              echo "::warning::CAS download failed"
-            fi
-          else
-            echo "No cas.tar.zst found in R2 (or file is empty), skipping CAS restore"
-          fi
-          rm -rf "${TEMP_DIR}"
-
-          echo ""
-          echo "=== Restoring artifact refs from R2 ==="
-          rclone copy "r2:${R2_BUCKET}/artifacts/" "${BST_CACHE}/artifacts/" \
-            --size-only --transfers=16 --fast-list \
-            -v || echo "::warning::Artifact refs restore failed (non-fatal)"
-
-          echo ""
-          echo "=== Restoring source protos from R2 ==="
-          rclone copy "r2:${R2_BUCKET}/source_protos/" "${BST_CACHE}/source_protos/" \
-            --size-only --transfers=16 --fast-list \
-            -v || echo "::warning::Source protos restore failed (non-fatal)"
-
-          echo ""
-          echo "╔══════════════════════════════════════════════════════════════╗"
-          echo "║              CACHE RESTORE REPORT                            ║"
-          echo "╚══════════════════════════════════════════════════════════════╝"
-          
-          # Calculate cache sizes after restore
-          CAS_AFTER=$(du -sb "${BST_CACHE}/cas" 2>/dev/null | cut -f1 || echo 0)
-          ARTIFACTS_AFTER=$(du -sb "${BST_CACHE}/artifacts" 2>/dev/null | cut -f1 || echo 0)
-          PROTOS_AFTER=$(du -sb "${BST_CACHE}/source_protos" 2>/dev/null | cut -f1 || echo 0)
-          SOURCES_AFTER=$(du -sb "${BST_CACHE}/sources" 2>/dev/null | cut -f1 || echo 0)
-          
-          CAS_DELTA=$((CAS_AFTER - CAS_BEFORE))
-          ARTIFACTS_DELTA=$((ARTIFACTS_AFTER - ARTIFACTS_BEFORE))
-          
-          echo "Component Sizes:"
-          echo "  CAS (objects):        $((CAS_AFTER / 1048576)) MB (+$((CAS_DELTA / 1048576)) MB)"
-          echo "  Artifacts (refs):     $((ARTIFACTS_AFTER / 1048576)) MB (+$((ARTIFACTS_DELTA / 1048576)) MB)"
-          echo "  Source protos:        $((PROTOS_AFTER / 1048576)) MB"
-          echo "  Sources (from GHA):   $((SOURCES_AFTER / 1048576)) MB"
-          echo ""
-          
-          if [ "$CAS_RESTORED" = "true" ]; then
-            echo "Cache Status: RESTORED (CAS validated and extracted)"
-          elif [ "$CAS_AFTER" -lt 10485760 ]; then
-            echo "Cache Status: EMPTY (cold build, will fetch from upstream)"
-          else
-            echo "Cache Status: PARTIAL (CAS restore failed, using previous cache)"
-          fi
-          
-          echo ""
-          echo "Total cache: $(du -sh "${BST_CACHE}" 2>/dev/null | cut -f1)"
-          echo "Time: $(( SECONDS - RESTORE_START ))s"
-          echo "═══════════════════════════════════════════════════════════════"
-          
-          df -h /
-
-      - name: Post-restore cache health check
-        run: |
-          BST_CACHE="$HOME/.cache/buildstream"
-          echo "=== Post-restore cache health check ==="
-
-          # Check CAS directory has content
-          CAS_OBJECTS=$(find "${BST_CACHE}/cas" -type f 2>/dev/null | head -100 | wc -l)
-          ARTIFACT_REFS=$(find "${BST_CACHE}/artifacts" -type f 2>/dev/null | wc -l)
-
-          echo "CAS objects (sampled): ${CAS_OBJECTS}+"
-          echo "Artifact refs: ${ARTIFACT_REFS}"
-          echo "CAS size: $(du -sh "${BST_CACHE}/cas" 2>/dev/null | cut -f1 || echo 'empty')"
-
-          if [ "$CAS_OBJECTS" -gt 0 ] && [ "$ARTIFACT_REFS" -gt 0 ]; then
-            echo "Health check: PASSED (cache looks populated)"
-          elif [ "$CAS_OBJECTS" -gt 0 ]; then
-            echo "Health check: PARTIAL (CAS objects present but no artifact refs)"
-            echo "::warning::Cache has CAS objects but no artifact refs — BuildStream may not recognize cached artifacts"
-          else
-            echo "Health check: COLD (no cached objects, full build expected)"
-            echo "Expected build time: ~120 minutes"
-          fi
-
       # ── Generate CI-specific BuildStream config ───────────────────────
       # Tuned per gnome-build-meta CI patterns:
       # - on-error: continue  -> find ALL failures, don't stop at first
       # - fetchers: 12        -> parallel downloads from upstream caches
-      # - builders: 1         -> GHA has 4 vCPUs; single builder avoids OOM
+      # - builders: 1         -> conservative to avoid OOM
       # - retry-failed: True  -> auto-retry flaky builds
       # - error-lines: 80     -> generous error context in logs
       # - cache-buildtrees: never -> save disk (we only need final artifacts)
       #
       # No remote artifact server is configured. BuildStream uses only:
-      # 1. Local disk cache (restored from R2 above)
+      # 1. Local disk cache (persisted by sticky disks)
       # 2. Upstream GNOME caches defined in project.conf (read-only)
-      # After the build, rclone syncs everything back to R2.
 
       - name: Generate BuildStream CI config
         run: |
