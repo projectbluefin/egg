@@ -289,3 +289,37 @@ show-me-the-future:
     else
         echo "==> All steps complete. Total: $(format_time $((SECONDS - OVERALL_START)))"
     fi
+
+# ── Chunkah ──────────────────────────────────────────────────────────
+build-chunkah-tool:
+    #!/usr/bin/env bash
+    if [ ! -d "chunkah" ]; then
+        git clone https://github.com/coreos/chunkah.git
+    fi
+    podman build --build-arg FINAL_FROM=rootfs -t chunkah-tool chunkah/
+
+chunkify image_ref: build-chunkah-tool
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> Chunkifying {{image_ref}}..."
+    
+    # Get config from existing image
+    CONFIG=$(podman inspect "{{image_ref}}")
+    
+    # Run chunkah (default 64 layers) and pipe to podman load
+    # Uses --mount=type=image to expose the source image content to chunkah
+    LOADED=$(podman run --rm \
+        --mount=type=image,src="{{image_ref}}",dest=/chunkah \
+        -e "CHUNKAH_CONFIG_STR=$CONFIG" \
+        chunkah-tool build | podman load)
+    
+    echo "$LOADED"
+    
+    # Parse the loaded image reference
+    NEW_REF=$(echo "$LOADED" | grep -oP '(?<=Loaded image: ).*' || \
+              echo "$LOADED" | grep -oP '(?<=Loaded image\(s\): ).*')
+    
+    if [ -n "$NEW_REF" ] && [ "$NEW_REF" != "{{image_ref}}" ]; then
+        echo "==> Retagging chunked image to {{image_ref}}..."
+        podman tag "$NEW_REF" "{{image_ref}}"
+    fi
