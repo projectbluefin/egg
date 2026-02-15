@@ -15,20 +15,26 @@ vm_cpus := env("VM_CPUS", "2")
 
 # ── BuildStream wrapper ──────────────────────────────────────────────
 # Runs any bst command inside the bst2 container via podman.
+# Set BST_FLAGS env var to prepend flags (e.g. --no-interactive --config ...).
 # Usage: just bst build oci/bluefin.bst
 #        just bst show oci/bluefin.bst
+#        BST_FLAGS="--no-interactive" just bst build oci/bluefin.bst
 bst *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "${HOME}/.cache/buildstream"
+    # BST_FLAGS env var allows CI to inject --no-interactive, --config, etc.
+    # Word-splitting is intentional here (flags are space-separated).
+    # shellcheck disable=SC2086
     podman run --rm \
         --privileged \
         --device /dev/fuse \
+        --network=host \
         -v "{{justfile_directory()}}:/src:rw" \
         -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
         -w /src \
         "{{bst2_image}}" \
-        bash -c 'ulimit -n 1048576 || true; bst --colors "$@"' -- {{ARGS}}
+        bash -c 'ulimit -n 1048576 || true; bst --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
 
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.
@@ -39,12 +45,31 @@ build:
     echo "==> Building OCI image with BuildStream (inside bst2 container)..."
     just bst build oci/bluefin.bst
 
+    just export
+
+# ── Export ─────────────────────────────────────────────────────────────
+# Checkout the built OCI image from BuildStream and load it into podman.
+# Assumes `bst build oci/bluefin.bst` has already completed.
+# Used by: `just build` (after building) and CI (as a separate step).
+#
+# Uses SUDO_CMD to handle root vs non-root: CI runs as root (no sudo),
+# local dev needs sudo for podman/skopeo access to containers-storage.
+export:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Use sudo unless already root (CI runners are root)
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+
     echo "==> Exporting OCI image..."
     rm -rf .build-out
     just bst artifact checkout oci/bluefin.bst --directory /src/.build-out
 
     echo "==> Loading OCI image into podman..."
-    sudo skopeo copy oci:.build-out containers-storage:{{image_name}}:{{image_tag}}-raw
+    $SUDO_CMD skopeo copy oci:.build-out "containers-storage:{{image_name}}:{{image_tag}}-raw"
     rm -rf .build-out
 
     # bootc requires images to not have both /etc and /usr/etc.
@@ -54,11 +79,11 @@ build:
     echo "==> Fixing /etc layout for bootc compatibility..."
     printf 'FROM %s\nRUN if [ -d /usr/etc ]; then cp -a /usr/etc/. /etc/ && rm -rf /usr/etc; fi\n' \
         "{{image_name}}:{{image_tag}}-raw" \
-        | sudo podman build --security-opt label=type:unconfined_t --squash-all -t "{{image_name}}:{{image_tag}}" -f - .
-    sudo podman rmi "{{image_name}}:{{image_tag}}-raw" || true
+        | $SUDO_CMD podman build --pull=never --security-opt label=type:unconfined_t --squash-all -t "{{image_name}}:{{image_tag}}" -f - .
+    $SUDO_CMD podman rmi "{{image_name}}:{{image_tag}}-raw" || true
 
-    echo "==> Build complete. Image loaded as {{image_name}}:{{image_tag}}"
-    sudo podman images | grep -E "{{image_name}}|REPOSITORY" || true
+    echo "==> Export complete. Image loaded as {{image_name}}:{{image_tag}}"
+    $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
 
 # ── Containerfile build (alternative) ────────────────────────────────
 build-containerfile $image_name=image_name:

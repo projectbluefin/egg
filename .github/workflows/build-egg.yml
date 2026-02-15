@@ -58,6 +58,12 @@ jobs:
           curl -fsSL https://rclone.org/install.sh | sudo bash
           rclone version
 
+      - name: Install just
+        run: |
+          # just is in ubuntu 24.04 universe; skopeo/podman are pre-installed
+          sudo apt-get install -y just
+          just --version
+
       - name: Restore BuildStream cache from R2
         env:
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
@@ -226,31 +232,16 @@ jobs:
           echo "Background R2 sync started (PID $(cat /tmp/r2-sync-loop.pid))"
 
       # ── BuildStream build ─────────────────────────────────────────────
-      # Runs inside the bst2 container with:
-      # - --privileged: required for bubblewrap sandboxing
-      # - --device /dev/fuse: required for buildbox-fuse (ext4 lacks reflinks)
-      # - ulimit -n 1048576: buildbox-casd needs many file descriptors
-      # - --no-interactive: prevent blocking on prompts in CI
+      # Uses the Justfile's `bst` wrapper to run BuildStream inside the
+      # bst2 container. CI-specific flags (--no-interactive, --config)
+      # are injected via BST_FLAGS env var.
+      # Additional --log-file flag is passed directly (build-specific).
 
       - name: Build OCI image with BuildStream
+        env:
+          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
         run: |
-          podman run --rm \
-            --privileged \
-            --device /dev/fuse \
-            --network=host \
-            -v "${{ github.workspace }}:/src:rw" \
-            -v "$HOME/.cache/buildstream:/root/.cache/buildstream:rw" \
-            -w /src \
-            "$BST2_IMAGE" \
-            bash -c '
-              ulimit -n 1048576 || true
-              bst --no-interactive \
-                  --colors \
-                  --config /src/buildstream-ci.conf \
-                  --log-file /src/logs/build.log \
-                  build \
-                  oci/bluefin.bst
-            '
+          just bst --log-file /src/logs/build.log build oci/bluefin.bst
         timeout-minutes: 120
 
       - name: Disk and cache usage after build
@@ -344,31 +335,18 @@ jobs:
           echo "=== R2 final sync complete ==="
 
       # ── Export OCI image ──────────────────────────────────────────────
-      # Stream the OCI tar from BuildStream directly into podman on the
-      # host. This avoids writing an intermediate tar file to disk.
-      # Pattern: bst artifact checkout --tar - | podman load
+      # Uses the Justfile's `export` recipe: checks out the OCI image
+      # layout from BuildStream, loads it into podman via skopeo, and
+      # applies the /usr/etc bootc fixup. Same logic as local builds.
 
       - name: Export OCI image from BuildStream
         id: export
+        env:
+          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
+          BUILD_IMAGE_NAME: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}
         run: |
-          LOADED=$(podman run --rm \
-            --privileged \
-            --device /dev/fuse \
-            -v "${{ github.workspace }}:/src:rw" \
-            -v "$HOME/.cache/buildstream:/root/.cache/buildstream:rw" \
-            -w /src \
-            "$BST2_IMAGE" \
-            bash -c '
-              ulimit -n 1048576 || true
-              bst --no-interactive \
-                  --config /src/buildstream-ci.conf \
-                  artifact checkout --tar - oci/bluefin.bst
-            ' | podman load)
-          # podman load prints "Loaded image: <name>:<tag>" or "Loaded image(s): <id>"
-          IMAGE_REF=$(echo "$LOADED" | grep -oP '(?<=Loaded image: ).*' || \
-                      echo "$LOADED" | grep -oP '(?<=Loaded image\(s\): ).*')
-          echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
-          echo "Loaded: $IMAGE_REF"
+          just export
+          echo "image_ref=${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Verify image loaded
         run: podman images
@@ -406,7 +384,6 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           podman tag "${{ steps.export.outputs.image_ref }}" \
-            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
 
       - name: Push to GHCR
