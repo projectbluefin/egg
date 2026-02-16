@@ -1,17 +1,25 @@
-default: build
+# List available commands
+[group('info')]
+default:
+    @just --list
 
 # ── Configuration ─────────────────────────────────────────────────────
-image_name := env("BUILD_IMAGE_NAME", "egg")
-image_tag := env("BUILD_IMAGE_TAG", "latest")
-base_dir := env("BUILD_BASE_DIR", ".")
-filesystem := env("BUILD_FILESYSTEM", "btrfs")
+export image_name := env("BUILD_IMAGE_NAME", "egg")
+export image_tag := env("BUILD_IMAGE_TAG", "latest")
+export base_dir := env("BUILD_BASE_DIR", ".")
+export filesystem := env("BUILD_FILESYSTEM", "btrfs")
 
 # Same bst2 container image CI uses -- pinned by SHA for reproducibility
-bst2_image := env("BST2_IMAGE", "registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:f89b4aef847ef040b345acceda15a850219eb8f1")
+export bst2_image := env("BST2_IMAGE", "registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:f89b4aef847ef040b345acceda15a850219eb8f1")
 
 # VM settings
-vm_ram := env("VM_RAM", "8192")
-vm_cpus := env("VM_CPUS", "4")
+export vm_ram := env("VM_RAM", "8192")
+export vm_cpus := env("VM_CPUS", "4")
+
+# OCI metadata (dynamic labels)
+export OCI_IMAGE_CREATED := env("OCI_IMAGE_CREATED", "")
+export OCI_IMAGE_REVISION := env("OCI_IMAGE_REVISION", "")
+export OCI_IMAGE_VERSION := env("OCI_IMAGE_VERSION", "latest")
 
 # ── BuildStream wrapper ──────────────────────────────────────────────
 # Runs any bst command inside the bst2 container via podman.
@@ -19,6 +27,7 @@ vm_cpus := env("VM_CPUS", "4")
 # Usage: just bst build oci/bluefin.bst
 #        just bst show oci/bluefin.bst
 #        BST_FLAGS="--no-interactive" just bst build oci/bluefin.bst
+[group('dev')]
 bst *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -38,6 +47,7 @@ bst *ARGS:
 
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.
+[group('build')]
 build:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -54,6 +64,7 @@ build:
 #
 # Uses SUDO_CMD to handle root vs non-root: CI runs as root (no sudo),
 # local dev needs sudo for podman/skopeo access to containers-storage.
+[group('build')]
 export:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -75,8 +86,23 @@ export:
     echo "==> Loading and squashing OCI image..."
     IMAGE_ID=$($SUDO_CMD podman pull -q oci:.build-out)
     rm -rf .build-out
+    
+    # Build label arguments for dynamic OCI metadata
+    LABEL_ARGS=""
+    if [ -n "${OCI_IMAGE_CREATED}" ]; then
+        LABEL_ARGS="${LABEL_ARGS} --label org.opencontainers.image.created=${OCI_IMAGE_CREATED}"
+    fi
+    if [ -n "${OCI_IMAGE_REVISION}" ]; then
+        LABEL_ARGS="${LABEL_ARGS} --label org.opencontainers.image.revision=${OCI_IMAGE_REVISION}"
+    fi
+    if [ -n "${OCI_IMAGE_VERSION}" ]; then
+        LABEL_ARGS="${LABEL_ARGS} --label org.opencontainers.image.version=${OCI_IMAGE_VERSION}"
+    fi
+    
+    # Squash and apply dynamic labels
+    # shellcheck disable=SC2086
     printf 'FROM %s\n' "$IMAGE_ID" \
-        | $SUDO_CMD podman build --pull=never --security-opt label=type:unconfined_t --squash-all -t "{{image_name}}:{{image_tag}}" -f - .
+        | $SUDO_CMD podman build --pull=never --security-opt label=type:unconfined_t --squash-all ${LABEL_ARGS} -t "{{image_name}}:{{image_tag}}" -f - .
     $SUDO_CMD podman rmi "$IMAGE_ID" || true
 
     echo "==> Export complete. Image loaded as {{image_name}}:{{image_tag}}"
@@ -84,15 +110,18 @@ export:
 
 # ── Clean ─────────────────────────────────────────────────────────────
 # Remove generated artifacts (disk image, OVMF vars, build output).
+[group('build')]
 clean:
     rm -f bootable.raw .ovmf-vars.fd
     rm -rf .build-out
 
 # ── Containerfile build (alternative) ────────────────────────────────
+[group('build')]
 build-containerfile $image_name=image_name:
     sudo podman build --security-opt label=type:unconfined_t --squash-all -t "${image_name}:latest" .
 
 # ── bootc helper ─────────────────────────────────────────────────────
+[group('dev')]
 bootc *ARGS:
     sudo podman run \
         --rm --privileged --pid=host \
@@ -104,6 +133,7 @@ bootc *ARGS:
         "{{image_name}}:{{image_tag}}" bootc {{ARGS}}
 
 # ── Generate bootable disk image ─────────────────────────────────────
+[group('test')]
 generate-bootable-image $base_dir=base_dir $filesystem=filesystem:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -137,6 +167,7 @@ generate-bootable-image $base_dir=base_dir $filesystem=filesystem:
 # ── Boot VM ───────────────────────────────────────────────────────────
 # Boot the raw disk image in QEMU with UEFI (OVMF).
 # Requires: qemu-system-x86_64, OVMF firmware, KVM access
+[group('test')]
 boot-vm $base_dir=base_dir:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -216,6 +247,7 @@ boot-vm $base_dir=base_dir:
 # The full end-to-end: build the OCI image, install it to a bootable
 # disk, and launch it in a QEMU VM. One command to rule them all.
 # Uses charm.sh gum for styled output when available.
+[group('test')]
 show-me-the-future:
     #!/usr/bin/env bash
     set -euo pipefail

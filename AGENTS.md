@@ -212,6 +212,34 @@ The `gnome-build-meta.bst` and `freedesktop-sdk.bst` junction elements pin speci
 - **Shell in workflows**: `${VAR}` notation, double-quote all expansions, single-quoted `bash -c` with `-e` env passthrough for podman
 - **Agent state**: `.opencode/` is gitignored -- never commit it (except `.opencode/skills/` which is tracked)
 
+## Justfile Style Guide
+
+All Justfiles in this repository follow bluefin-lts style patterns:
+
+**Variables:**
+- Use `export` for all variables: `export FOO := env("FOO", "default")`
+- Prefer `env()` with defaults over bare assignments
+- Environment variables should match exported variable names
+
+**Recipe Organization:**
+- Add `[group('category')]` decorators to all recipes
+- Categories: `build`, `test`, `dev`, `registry`, `vm`
+- Order recipes by logical workflow, not alphabetically
+
+**Default Recipe:**
+- First recipe should be `@just --list` (displays available commands)
+- This improves discoverability for new contributors
+
+**Recipe Style:**
+- Use quiet mode: Prefix with `@` to suppress command echo
+- Set shell options: `#!/usr/bin/env bash` with `set -euo pipefail`
+- Keep recipes focused: One task per recipe, compose with dependencies
+
+**Comments:**
+- Add brief description above each recipe
+- Explain non-obvious environment variables
+- Document prerequisites for complex recipes
+
 ## Superpowers Skill System
 
 All agents MUST load and follow these skills before acting:
