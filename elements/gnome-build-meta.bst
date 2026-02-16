@@ -17,6 +17,7 @@ config:
     core/meta-gnome-core-apps.bst: core/meta-gnome-core-apps.bst
 
     gnomeos-deps/plymouth-gnome-theme.bst: bluefin/plymouth-bluefin-theme.bst
+    gnomeos-deps/bootc.bst: core/bootc.bst
 
     # Replace the element so the OCI image generates Bluefin's os-release file
     oci/os-release.bst: oci/os-release.bst
