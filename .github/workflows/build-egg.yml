@@ -46,14 +46,23 @@ jobs:
           du -sh /home/runner/.cache/buildstream/{cas,artifacts,source_protos,sources} 2>/dev/null || true
           df -h /home/runner/.cache/buildstream
 
-      - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@master
+      - name: Install Homebrew
+        run: |
+          # Install Homebrew directly (non-interactive mode for CI)
+          NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          # Add Homebrew to PATH for subsequent steps
+          echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
+          echo "/home/linuxbrew/.linuxbrew/sbin" >> $GITHUB_PATH
 
       - name: Install build tools via Homebrew
         run: |
-          # Install all build tools from Homebrew for consistent versions
+          # Install all build tools from Homebrew for consistent, up-to-date versions
           # Ubuntu 24.04 ships just 1.21.0, but we need 1.31.0+ for [group()] attribute
+          # Homebrew provides: just 1.46.0, podman 5.x, skopeo 1.x, buildah 1.x
           brew install just podman skopeo buildah
+          
+      - name: Verify tool versions
+        run: |
           just --version
           podman --version
           skopeo --version
