@@ -46,11 +46,18 @@ jobs:
           du -sh /home/runner/.cache/buildstream/{cas,artifacts,source_protos,sources} 2>/dev/null || true
           df -h /home/runner/.cache/buildstream
 
-      - name: Install just
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Install build tools via Homebrew
         run: |
-          # just is in ubuntu 24.04 universe; skopeo/podman are pre-installed
-          sudo apt-get install -y just
+          # Install all build tools from Homebrew for consistent versions
+          # Ubuntu 24.04 ships just 1.21.0, but we need 1.31.0+ for [group()] attribute
+          brew install just podman skopeo buildah
           just --version
+          podman --version
+          skopeo --version
+          buildah --version
 
       - name: Capture build timestamp
         id: timestamp
