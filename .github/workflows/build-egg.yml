@@ -1,10 +1,8 @@
 name: Build Bluefin Egg
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  schedule:
+    - cron: '0 8 * * *'  # Daily at 08:00 UTC, after GNOME OS builds (~03:03) and source tracking (06:00)
   workflow_dispatch:
 
 env:
@@ -12,13 +10,11 @@ env:
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
   BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:f89b4aef847ef040b345acceda15a850219eb8f1
 
-# On PRs: group by branch so new pushes cancel stale runs.
-# On main: group by SHA so every push gets its own non-cancellable run.
-# (GitHub cancels even pending/queued runs in the same group regardless of
-#  cancel-in-progress when a newer run arrives, so main needs unique groups.)
+# Only one build at a time. If a manual dispatch arrives while a scheduled
+# build is running, the in-progress run is cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -166,16 +162,14 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      # ── Publish to GHCR (main branch only) ───────────────────────────
+      # ── Publish to GHCR ───────────────────────────────────────────────
 
       - name: Login to GHCR
-        if: github.ref == 'refs/heads/main'
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             sudo podman login ghcr.io --username ${{ github.actor }} --password-stdin
 
       - name: Tag image for GHCR
-        if: github.ref == 'refs/heads/main'
         run: |
           sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
@@ -183,7 +177,6 @@ jobs:
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
 
       - name: Push to GHCR
-        if: github.ref == 'refs/heads/main'
         run: |
           for tag in latest "${{ github.sha }}"; do
             for i in 1 2 3; do

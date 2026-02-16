@@ -124,7 +124,7 @@ The project configuration defines:
 
 ### Workflow: `.github/workflows/build-egg.yml`
 
-Runs on `blacksmith-4vcpu-ubuntu-2404`. Triggers on push to main, PRs against main, and manual dispatch.
+Runs on `blacksmith-4vcpu-ubuntu-2404`. Triggers daily at 08:00 UTC (after GNOME OS builds) and on manual dispatch.
 
 **Architecture**: BuildStream runs inside GNOME's official `bst2` Docker image via podman. This container needs `--privileged` and `--device /dev/fuse` for bubblewrap sandboxing. The container is NOT the GitHub Actions `container:` directive -- it's invoked via `podman run` because sticky disk mounts must happen on the host before being bind-mounted into the container.
 

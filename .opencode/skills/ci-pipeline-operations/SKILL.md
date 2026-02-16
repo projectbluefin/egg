@@ -116,17 +116,18 @@ R2 is used only for cold cache recovery (when sticky disks are empty). The prese
 | GNOME upstream | `project.conf` `artifacts:` section | Always | Never | freedesktop-sdk + gnome-build-meta artifacts |
 | R2 preseed | Workflow step (rclone, on-demand) | Cold cache only | Never | Bootstrap CAS snapshot (currently corrupt) |
 
-## PR vs Main Differences
+## Trigger Modes
 
-| Behavior | PR | Main push |
+| Behavior | Scheduled (daily 08:00 UTC) | Manual dispatch |
 |---|---|---|
 | Build runs? | Yes | Yes |
 | bootc lint? | Yes | Yes |
-| Sticky disk cache? | Yes (same disks, shared by repo) | Yes |
-| R2 preseed (cold cache)? | Yes (if secrets available) | Yes |
-| Fork PR gets R2 secrets? | **No** -- GitHub doesn't expose secrets to forks | N/A |
-| Push to GHCR? | **No** | Yes |
-| Concurrency | Grouped by branch; new pushes cancel stale runs | Grouped by SHA; every push runs |
+| Sticky disk cache? | Yes | Yes |
+| R2 preseed (cold cache)? | Yes | Yes |
+| Push to GHCR? | Yes | Yes |
+| Concurrency | Single group; cancel-in-progress if another build arrives | Single group; cancel-in-progress if another build arrives |
+
+**Schedule timing:** The workflow runs daily at 08:00 UTC, after GNOME OS publishes artifacts (~03:03 UTC, done by ~04:00) and source tracking runs (06:00 UTC).
 
 ## Secrets and Permissions
 
@@ -135,7 +136,7 @@ R2 is used only for cold cache recovery (when sticky disks are empty). The prese
 | `R2_ACCESS_KEY` | Optional | Cloudflare R2 access key ID (cold preseed only) |
 | `R2_SECRET_KEY` | Optional | Cloudflare R2 secret access key (cold preseed only) |
 | `R2_ENDPOINT` | Optional | R2 S3-compatible endpoint (cold preseed only) |
-| `GITHUB_TOKEN` | Auto-provided | GHCR login (main branch push only) |
+| `GITHUB_TOKEN` | Auto-provided | GHCR login (always pushes on success) |
 
 **All R2 secrets are optional.** If missing, the cold preseed step is skipped and the build proceeds using the sticky disk cache (if warm) plus GNOME upstream CAS. On a truly cold start without R2 secrets, everything builds from source -- slow but functional.
 
