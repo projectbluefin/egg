@@ -19,6 +19,8 @@ aliases:
   fedora_rpms: https://src.fedoraproject.org/rpms/
   ghostty_deps: https://deps.files.ghostty.org/
   ghostty_releases: https://release.files.ghostty.org/
+  onepassword_cli: https://cache.agilebits.com/dist/1P/op2/pkg/
+  onepassword_files: https://downloads.1password.com/
 
   flathub: https://flathub.org/repo/
   freedesktop_files: https://gitlab.freedesktop.org/
