@@ -63,7 +63,7 @@ build:
 # Used by: `just build` (after building) and CI (as a separate step).
 #
 # Uses SUDO_CMD to handle root vs non-root: CI runs as root (no sudo),
-# local dev needs sudo for podman/skopeo access to containers-storage.
+# local dev needs sudo for podman access to containers-storage.
 [group('build')]
 export:
     #!/usr/bin/env bash
