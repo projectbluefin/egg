@@ -25,7 +25,7 @@ That's it. The first build takes about an hour (it pulls cached artifacts from G
 
 ## Prerequisites
 
-You need [podman](https://podman.io/docs/installation), [just](https://just.systems/man/en/packages.html
+You need [podman](https://podman.io/docs/installation), [just](https://just.systems/man/en/packages.html)
 
 **(WIP)** `just preflight` -- a preflight check that validates your setup and auto-installs missing tools (like QEMU) via [Homebrew](https://brew.sh), reducing hard prerequisites to just `podman` and `just`.
 
