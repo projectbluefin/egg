@@ -8,8 +8,8 @@ runtime-depends:
 
 sources:
   - kind: remote
-    url: github_files:ublue-os/packages/releases/download/homebrew-2026-02-10-01-32-18/homebrew-x86_64.tar.zst
-    ref: 85df81af7851f56e8514b9c2207ed923928c0ee5638800a887c4707c519ff999
+    url: github_files:ublue-os/packages/releases/download/homebrew-2026-02-17-01-32-11/homebrew-x86_64.tar.zst
+    ref: f110e191eecd481cf4c5e984fd463f3c5b0ee92006ff88402385caa03db72ad6
 variables:
   strip-binaries: ""
 
