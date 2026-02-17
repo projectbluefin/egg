@@ -4,6 +4,7 @@ build-depends:
   - gnome-build-meta.bst:freedesktop-sdk.bst:components/fakecap.bst
   - gnome-build-meta.bst:freedesktop-sdk.bst:components/oci-builder.bst
   - freedesktop-sdk.bst:components/glib.bst
+  - gnome-build-meta.bst:core-deps/dconf.bst
   - gnome-build-meta.bst:freedesktop-sdk.bst:vm/prepare-image.bst
   - oci/layers/bluefin-init-scripts.bst
   - filename: gnome-build-meta.bst:oci/gnomeos.bst
@@ -45,6 +46,9 @@ config:
         cp -a /layer/usr/etc/. /layer/etc/
         rm -rf /layer/usr/etc
       fi
+
+    - |
+      dconf update /layer/etc/dconf/db
 
     - |
       cd "%{install-root}"

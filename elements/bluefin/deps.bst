@@ -34,5 +34,3 @@ depends:
   - gnome-build-meta.bst:gnomeos-deps/distrobox.bst
   - gnome-build-meta.bst:gnomeos-deps/just.bst
   - gnome-build-meta.bst:gnomeos-deps/wl-clipboard.bst
-  - bluefin/uutils-coreutils.bst
-  - bluefin/sudo-rs.bst

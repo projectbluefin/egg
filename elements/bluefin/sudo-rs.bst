@@ -5,6 +5,7 @@ public:
     overlap-whitelist:
     - /usr/bin/sudo
     - /usr/bin/sudoedit
+    - /usr/lib/debug/usr/bin/sudo.debug
 
 build-depends:
 - freedesktop-sdk.bst:components/rust.bst
@@ -25,10 +26,11 @@ config:
 
 sources:
 - kind: git_repo
-  url: https://github.com/memorysafety/sudo-rs.git
+  url: github:memorysafety/sudo-rs.git
   track: 74e0db4f7f89b7429dd7ebbdfa94b0c55eba40cb
   ref: 74e0db4f7f89b7429dd7ebbdfa94b0c55eba40cb
 - kind: cargo2
+  url: crates:crates
   ref:
   - kind: registry
     name: glob
