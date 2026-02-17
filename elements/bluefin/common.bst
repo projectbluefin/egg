@@ -14,6 +14,12 @@ depends:
 - freedesktop-sdk.bst:public-stacks/runtime-minimal.bst
 - freedesktop-sdk.bst:components/sed.bst
 
+public:
+  bst:
+    overlap-whitelist:
+    - /etc/environment
+    - /etc/containers/policy.json
+
 variables:
   strip-binaries: ""
 
@@ -31,4 +37,8 @@ config:
     cp -r system_files/bluefin/etc/./ "%{install-root}%{sysconfdir}/"
     cp -r system_files/shared/etc/./ "%{install-root}%{sysconfdir}/"
     cp -r bluefin-branding/system_files/etc/./ "%{install-root}%{sysconfdir}/"
+
+    # Create dconf profile so the distro system database is read
+    mkdir -p "%{install-root}%{sysconfdir}/dconf/profile"
+    printf 'user-db:user\nsystem-db:distro\n' > "%{install-root}%{sysconfdir}/dconf/profile/user"
   - "%{install-extra}"

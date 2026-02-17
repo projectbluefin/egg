@@ -7,9 +7,121 @@ config:
   install-commands:
   - install -Dm755 target/release/coreutils "%{install-root}/usr/bin/uutils-coreutils"
   - |
-    for prog in $(target/release/coreutils --help | grep -E '^  [a-z]+' | awk '{print $1}'); do
+    for prog in $(target/release/coreutils --list); do
       ln -sr "%{install-root}/usr/bin/uutils-coreutils" "%{install-root}/usr/bin/uutils-${prog}"
+      ln -sr "%{install-root}/usr/bin/uutils-coreutils" "%{install-root}/usr/bin/${prog}"
     done
+
+public:
+  bst:
+    overlap-whitelist:
+    - /usr/bin/[
+    - /usr/bin/arch
+    - /usr/bin/b2sum
+    - /usr/bin/base32
+    - /usr/bin/base64
+    - /usr/bin/basename
+    - /usr/bin/basenc
+    - /usr/bin/cat
+    - /usr/bin/chgrp
+    - /usr/bin/chmod
+    - /usr/bin/chown
+    - /usr/bin/chroot
+    - /usr/bin/cksum
+    - /usr/bin/comm
+    - /usr/bin/cp
+    - /usr/bin/csplit
+    - /usr/bin/cut
+    - /usr/bin/date
+    - /usr/bin/dd
+    - /usr/bin/df
+    - /usr/bin/dir
+    - /usr/bin/dircolors
+    - /usr/bin/dirname
+    - /usr/bin/du
+    - /usr/bin/echo
+    - /usr/bin/env
+    - /usr/bin/expand
+    - /usr/bin/expr
+    - /usr/bin/factor
+    - /usr/bin/false
+    - /usr/bin/fmt
+    - /usr/bin/fold
+    - /usr/bin/groups
+    - /usr/bin/head
+    - /usr/bin/hostid
+    - /usr/bin/hostname
+    - /usr/bin/id
+    - /usr/bin/install
+    - /usr/bin/join
+    - /usr/bin/kill
+    - /usr/bin/link
+    - /usr/bin/ln
+    - /usr/bin/logname
+    - /usr/bin/ls
+    - /usr/bin/md5sum
+    - /usr/bin/mkdir
+    - /usr/bin/mkfifo
+    - /usr/bin/mknod
+    - /usr/bin/mktemp
+    - /usr/bin/more
+    - /usr/bin/mv
+    - /usr/bin/nice
+    - /usr/bin/nl
+    - /usr/bin/nohup
+    - /usr/bin/nproc
+    - /usr/bin/numfmt
+    - /usr/bin/od
+    - /usr/bin/paste
+    - /usr/bin/pathchk
+    - /usr/bin/pinky
+    - /usr/bin/pr
+    - /usr/bin/printenv
+    - /usr/bin/printf
+    - /usr/bin/ptx
+    - /usr/bin/pwd
+    - /usr/bin/readlink
+    - /usr/bin/realpath
+    - /usr/bin/rm
+    - /usr/bin/rmdir
+    - /usr/bin/seq
+    - /usr/bin/sha1sum
+    - /usr/bin/sha224sum
+    - /usr/bin/sha256sum
+    - /usr/bin/sha384sum
+    - /usr/bin/sha512sum
+    - /usr/bin/shred
+    - /usr/bin/shuf
+    - /usr/bin/sleep
+    - /usr/bin/sort
+    - /usr/bin/split
+    - /usr/bin/stat
+    - /usr/bin/stdbuf
+    - /usr/bin/stty
+    - /usr/bin/sum
+    - /usr/bin/sync
+    - /usr/bin/tac
+    - /usr/bin/tail
+    - /usr/bin/tee
+    - /usr/bin/test
+    - /usr/bin/timeout
+    - /usr/bin/touch
+    - /usr/bin/tr
+    - /usr/bin/true
+    - /usr/bin/truncate
+    - /usr/bin/tsort
+    - /usr/bin/tty
+    - /usr/bin/uname
+    - /usr/bin/unexpand
+    - /usr/bin/uniq
+    - /usr/bin/unlink
+    - /usr/bin/uptime
+    - /usr/bin/users
+    - /usr/bin/vdir
+    - /usr/bin/wc
+    - /usr/bin/who
+    - /usr/bin/whoami
+    - /usr/bin/yes
 
 build-depends:
 - freedesktop-sdk.bst:components/rust.bst
@@ -20,10 +132,11 @@ depends:
 
 sources:
 - kind: git_repo
-  url: https://github.com/uutils/coreutils.git
+  url: github:uutils/coreutils.git
   track: e7f2fd9c80417265707e54fb0b260531c86cc39e
   ref: e7f2fd9c80417265707e54fb0b260531c86cc39e
 - kind: cargo2
+  url: crates:crates
   ref:
   - kind: registry
     name: adler2

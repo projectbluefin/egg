@@ -1,8 +1,8 @@
 kind: compose
 
 build-depends:
-  - oci/layers/bluefin-runtime.bst
   - freedesktop-sdk.bst:components/gcc.bst
+  - oci/layers/bluefin-runtime.bst
 
 config:
   exclude:

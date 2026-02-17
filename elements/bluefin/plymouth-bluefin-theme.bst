@@ -24,3 +24,4 @@ public:
   bst:
     overlap-whitelist:
       - "%{datadir}/plymouth/plymouthd.defaults"
+      - "%{datadir}/plymouth/themes/spinner/watermark.png"
