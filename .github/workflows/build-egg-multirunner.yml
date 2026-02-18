@@ -32,9 +32,6 @@ jobs:
       core_targets: ${{ steps.matrix.outputs.core_targets }}
       final_target: ${{ steps.matrix.outputs.final_target }}
     steps:
-      - name: Free disk space
-        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - run: podman pull "$BST2_IMAGE"
 
