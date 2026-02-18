@@ -48,16 +48,8 @@ jobs:
           du -sh /home/runner/.cache/buildstream/{cas,artifacts,source_protos,sources} 2>/dev/null || true
           df -h /home/runner/.cache/buildstream
 
-      - name: Install just from GitHub releases
-        run: |
-          # Ubuntu 24.04 ships just 1.21.0, but we need 1.31.0+ for [group()] attribute
-          # Download and install latest just binary directly from GitHub releases
-          JUST_VERSION="1.46.0"
-          curl -fsSL "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o just.tar.gz
-          tar xzf just.tar.gz
-          sudo install -m 755 just /usr/local/bin/just
-          rm just just.tar.gz
-          just --version
+      - name: Setup Just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
 
       - name: Capture build timestamp
         id: timestamp
@@ -142,47 +134,6 @@ jobs:
           OCI_IMAGE_REVISION: ${{ github.sha }}
           OCI_IMAGE_VERSION: latest
         run: |
-          # Build chunkah tool
-          podman build --build-arg FINAL_FROM=rootfs -t chunkah-tool chunkah/
-
-          # Export and load raw image
-          LOADED=$(podman run --rm \
-            --privileged \
-            --device /dev/fuse \
-            -v "${{ github.workspace }}:/src:rw" \
-            -v "$HOME/.cache/buildstream:/root/.cache/buildstream:rw" \
-            -w /src \
-            "$BST2_IMAGE" \
-            bash -c '
-              ulimit -n 1048576 || true
-              bst --no-interactive \
-                  --config /src/buildstream-ci.conf \
-                  artifact checkout --tar - oci/bluefin.bst
-            ' | podman load)
-
-          RAW_REF=$(echo "$LOADED" | grep -oP '(?<=Loaded image: ).*' || \
-                    echo "$LOADED" | grep -oP '(?<=Loaded image\(s\): ).*')
-          echo "Loaded Raw: $RAW_REF"
-
-          # Chunkify
-          echo "==> Chunkifying..."
-          CONFIG=$(podman inspect "$RAW_REF")
-
-          LOADED_CHUNKED=$(podman run --rm \
-            --mount=type=image,src="$RAW_REF",dest=/chunkah \
-            -e "CHUNKAH_CONFIG_STR=$CONFIG" \
-            chunkah-tool build | podman load)
-
-          IMAGE_REF=$(echo "$LOADED_CHUNKED" | grep -oP '(?<=Loaded image: ).*' || \
-                      echo "$LOADED_CHUNKED" | grep -oP '(?<=Loaded image\(s\): ).*')
-
-          echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
-          echo "Loaded Chunked: $IMAGE_REF"
-
-          # Cleanup raw
-          if [ "$RAW_REF" != "$IMAGE_REF" ]; then
-             podman rmi "$RAW_REF" || true
-          fi
           just export
           echo "image_ref=${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
 
@@ -193,9 +144,7 @@ jobs:
 
       - name: Validate with bootc container lint
         run: |
-          sudo podman run --rm --privileged --pull=never \
-            "localhost/${{ steps.export.outputs.image_ref }}" \
-            bootc container lint
+           just lint
 
       # ── Upload build logs ─────────────────────────────────────────────
       # Always upload, even on failure, so build failures can be diagnosed.

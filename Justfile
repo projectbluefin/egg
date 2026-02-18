@@ -108,6 +108,9 @@ export:
     echo "==> Export complete. Image loaded as {{image_name}}:{{image_tag}}"
     $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
 
+    # Step: Chunkify (reorganize layers)
+    just chunkify "{{image_name}}:{{image_tag}}"
+
 # ── Clean ─────────────────────────────────────────────────────────────
 # Remove generated artifacts (disk image, OVMF vars, build output).
 [group('build')]
@@ -370,25 +373,42 @@ show-me-the-future:
 # ── Chunkah ──────────────────────────────────────────────────────────
 build-chunkah-tool:
     #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Use sudo unless already root (CI runners are root)
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+
     if [ ! -d "chunkah" ]; then
         git clone https://github.com/coreos/chunkah.git
     fi
-    podman build --build-arg FINAL_FROM=rootfs -t chunkah-tool chunkah/
+    $SUDO_CMD podman build --security-opt label=type:unconfined_t --build-arg FINAL_FROM=rootfs -t chunkah-tool chunkah/
 
 chunkify image_ref: build-chunkah-tool
     #!/usr/bin/env bash
     set -euo pipefail
+
+    # Use sudo unless already root (CI runners are root)
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+
     echo "==> Chunkifying {{image_ref}}..."
     
     # Get config from existing image
-    CONFIG=$(podman inspect "{{image_ref}}")
+    CONFIG=$($SUDO_CMD podman inspect "{{image_ref}}")
     
     # Run chunkah (default 64 layers) and pipe to podman load
     # Uses --mount=type=image to expose the source image content to chunkah
-    LOADED=$(podman run --rm \
+    # Note: We need --privileged for some podman-in-podman/mount scenarios or just standard access
+    LOADED=$($SUDO_CMD podman run --rm \
+        --security-opt label=type:unconfined_t \
         --mount=type=image,src="{{image_ref}}",dest=/chunkah \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
-        chunkah-tool build | podman load)
+        chunkah-tool build | $SUDO_CMD podman load)
     
     echo "$LOADED"
     
@@ -398,5 +418,22 @@ chunkify image_ref: build-chunkah-tool
     
     if [ -n "$NEW_REF" ] && [ "$NEW_REF" != "{{image_ref}}" ]; then
         echo "==> Retagging chunked image to {{image_ref}}..."
-        podman tag "$NEW_REF" "{{image_ref}}"
+        $SUDO_CMD podman tag "$NEW_REF" "{{image_ref}}"
     fi
+
+# ── Lint ─────────────────────────────────────────────────────────────
+[group('test')]
+lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Use sudo unless already root
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+
+    echo "==> Linting {{image_name}}:{{image_tag}} with bootc container lint..."
+    $SUDO_CMD podman run --rm --privileged --pull=never \
+        "{{image_name}}:{{image_tag}}" \
+        bootc container lint

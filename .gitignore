@@ -4,6 +4,7 @@
 # Ignore BuildStream local state
 .bst
 .bst2
+.cache/*
 
 *.img
 *.raw
