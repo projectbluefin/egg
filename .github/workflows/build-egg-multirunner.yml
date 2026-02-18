@@ -2,8 +2,8 @@ name: Build Bluefin Egg (Multi-Runner)
 
 # Multi-runner build for free GitHub-hosted runners (no Blacksmith).
 # Splits the BuildStream dependency graph into parallel chunks, caches
-# each chunk as a GHCR OCI image, and skips chunks that haven't changed.
-# Use this when you don't have Blacksmith sticky disk runners available.
+# each chunk as a GHCR OCI artifact (via ORAS), and skips chunks that
+# haven't changed. Uses zstd compression for faster transfers.
 
 on:
   workflow_dispatch:
@@ -112,6 +112,9 @@ jobs:
       - name: Setup Just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
 
+      - name: Setup ORAS
+        uses: oras-project/setup-oras@v1
+
       - name: Cache BuildStream sources
         uses: actions/cache@v4
         with:
@@ -120,23 +123,26 @@ jobs:
           restore-keys: |
             bst-sources-${{ runner.os }}-
 
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u ${{ github.actor }} --password-stdin
+
       - name: Restore Core Cache from GHCR
         run: |
           mkdir -p ~/.cache/buildstream
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          CORE_TAG="ghcr.io/${REPO_LOWER}/cache-core:latest"
+          CORE_REF="ghcr.io/${REPO_LOWER}/cache-core:latest"
 
-          if podman pull "$CORE_TAG"; then
-            if id=$(podman create "$CORE_TAG" true 2>/dev/null); then
-                if podman cp "$id":/cas.tar cas-core.tar; then
-                    tar -xf cas-core.tar -C "$HOME/.cache/buildstream"
-                    rm cas-core.tar
-                    echo "Core CAS warmed."
-                else
-                    echo "WARNING: Failed to copy /cas.tar. Ignoring cache."
-                fi
-                podman rm "$id"
+          if oras pull "$CORE_REF" -o .; then
+            if [ -f cas-core.tar.zst ]; then
+              zstd -d -T0 cas-core.tar.zst -o cas-core.tar
+              tar -xf cas-core.tar -C "$HOME/.cache/buildstream"
+              rm -f cas-core.tar cas-core.tar.zst
+              echo "Core CAS warmed."
+            else
+              echo "WARNING: No cas-core.tar.zst in artifact. Ignoring cache."
             fi
+          else
+            echo "No existing core cache found, starting fresh."
           fi
 
       - name: Generate CI config
@@ -167,18 +173,21 @@ jobs:
       - name: Archive and Push Core CAS
         run: |
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          CORE_TAG="ghcr.io/${REPO_LOWER}/cache-core:latest"
+          CORE_REF="ghcr.io/${REPO_LOWER}/cache-core:latest"
 
+          # Archive CAS with zstd compression
           podman run --rm \
             -v "$HOME/.cache/buildstream:/input:ro" \
             -v "${{ github.workspace }}:/output:rw" \
             "$BST2_IMAGE" \
             sh -c "tar -cf /output/cas-core.tar -C /input --exclude 'cas/staging' --exclude 'cas/tmp' . || [ \$? -eq 1 ]"
 
-          echo -e "FROM docker.io/library/busybox:latest\nCOPY cas-core.tar /cas.tar" > Dockerfile
-          podman build -t "$CORE_TAG" .
-          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
-          podman push "$CORE_TAG"
+          zstd -T0 --rm cas-core.tar -o cas-core.tar.zst
+          echo "Compressed CAS archive: $(du -sh cas-core.tar.zst | cut -f1)"
+
+          # Push to GHCR as an OCI artifact
+          oras push "$CORE_REF" cas-core.tar.zst:application/vnd.buildstream.cas.tar.zst
+          echo "Pushed core CAS to $CORE_REF"
 
   # ── Phase 3: Build dependency chunks in parallel ─────────────────────
   build_deps:
@@ -207,6 +216,9 @@ jobs:
       - name: Setup Just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
 
+      - name: Setup ORAS
+        uses: oras-project/setup-oras@v1
+
       - name: Cache BuildStream sources
         uses: actions/cache@v4
         with:
@@ -215,16 +227,19 @@ jobs:
           restore-keys: |
             bst-sources-${{ runner.os }}-
 
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u ${{ github.actor }} --password-stdin
+
       # ── Cache-aware skip: check if this chunk is already in GHCR ────
       - name: Check GHCR for cached chunk
         id: cache_check
         if: env.CHUNK_CACHE_KEY != '' && env.CHUNK_CACHE_KEY != 'null'
         run: |
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE_TAG="ghcr.io/${REPO_LOWER}/cache-${{ matrix.chunk }}:${CHUNK_CACHE_KEY}"
+          CHUNK_REF="ghcr.io/${REPO_LOWER}/cache-${{ matrix.chunk }}:${CHUNK_CACHE_KEY}"
 
-          echo "Checking for cached chunk: $IMAGE_TAG"
-          if podman manifest inspect "$IMAGE_TAG" > /dev/null 2>&1; then
+          echo "Checking for cached chunk: $CHUNK_REF"
+          if oras manifest fetch "$CHUNK_REF" > /dev/null 2>&1; then
             echo "cache_hit=true" >> "$GITHUB_OUTPUT"
             echo "✅ Cache hit! Skipping build for ${{ matrix.chunk }}"
           else
@@ -237,15 +252,14 @@ jobs:
         run: |
           mkdir -p ~/.cache/buildstream
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          CORE_TAG="ghcr.io/${REPO_LOWER}/cache-core:latest"
+          CORE_REF="ghcr.io/${REPO_LOWER}/cache-core:latest"
 
-          if podman pull "$CORE_TAG"; then
-            if id=$(podman create "$CORE_TAG" true 2>/dev/null); then
-                if podman cp "$id":/cas.tar cas-core.tar; then
-                    tar -xf cas-core.tar -C "$HOME/.cache/buildstream"
-                    rm cas-core.tar
-                fi
-                podman rm "$id"
+          if oras pull "$CORE_REF" -o .; then
+            if [ -f cas-core.tar.zst ]; then
+              zstd -d -T0 cas-core.tar.zst -o cas-core.tar
+              tar -xf cas-core.tar -C "$HOME/.cache/buildstream"
+              rm -f cas-core.tar cas-core.tar.zst
+              echo "Core CAS warmed."
             fi
           fi
 
@@ -255,18 +269,16 @@ jobs:
         continue-on-error: true
         run: |
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          LATEST_TAG="ghcr.io/${REPO_LOWER}/cache-${{ matrix.chunk }}:latest"
+          LATEST_REF="ghcr.io/${REPO_LOWER}/cache-${{ matrix.chunk }}:latest"
 
-          if podman pull "$LATEST_TAG"; then
-            echo "Warming CAS from latest cache..."
-            mkdir -p ~/.cache/buildstream
-            if id=$(podman create "$LATEST_TAG" true 2>/dev/null); then
-                if podman cp "$id":/cas.tar cas-restore.tar; then
-                    tar -xf cas-restore.tar -C "$HOME/.cache/buildstream"
-                    rm cas-restore.tar
-                    echo "CAS warmed from latest."
-                fi
-                podman rm "$id"
+          if oras pull "$LATEST_REF" -o .; then
+            if [ -f cas-${{ matrix.chunk }}.tar.zst ]; then
+              echo "Warming CAS from latest cache..."
+              mkdir -p ~/.cache/buildstream
+              zstd -d -T0 cas-${{ matrix.chunk }}.tar.zst -o cas-${{ matrix.chunk }}.tar
+              tar -xf cas-${{ matrix.chunk }}.tar -C "$HOME/.cache/buildstream"
+              rm -f cas-${{ matrix.chunk }}.tar cas-${{ matrix.chunk }}.tar.zst
+              echo "CAS warmed from latest."
             fi
           fi
 
@@ -321,67 +333,32 @@ jobs:
             exit 1
           fi
 
-      - name: Archive CAS
-        if: always() && steps.cache_check.outputs.cache_hit != 'true' && steps.build.outputs.skipped != 'true'
+      - name: Archive and Push CAS to GHCR
+        if: always() && steps.cache_check.outputs.cache_hit != 'true' && steps.build.outputs.skipped != 'true' && env.CHUNK_CACHE_KEY != '' && env.CHUNK_CACHE_KEY != 'null'
         run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          CHUNK_REF="ghcr.io/${REPO_LOWER}/cache-${{ matrix.chunk }}:${CHUNK_CACHE_KEY}"
+          LATEST_REF="ghcr.io/${REPO_LOWER}/cache-${{ matrix.chunk }}:latest"
+
+          # Archive CAS with zstd compression
           podman run --rm \
             -v "$HOME/.cache/buildstream:/input:ro" \
             -v "${{ github.workspace }}:/output:rw" \
             "$BST2_IMAGE" \
             sh -c "tar -cf /output/cas-${{ matrix.chunk }}.tar -C /input --exclude 'cas/staging' --exclude 'cas/tmp' . || [ \$? -eq 1 ]"
 
-      - name: Push to GHCR
-        if: always() && steps.cache_check.outputs.cache_hit != 'true' && steps.build.outputs.skipped != 'true' && env.CHUNK_CACHE_KEY != '' && env.CHUNK_CACHE_KEY != 'null'
-        run: |
-          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE_TAG="ghcr.io/${REPO_LOWER}/cache-${{ matrix.chunk }}:${CHUNK_CACHE_KEY}"
-          LATEST_TAG="ghcr.io/${REPO_LOWER}/cache-${{ matrix.chunk }}:latest"
+          zstd -T0 --rm cas-${{ matrix.chunk }}.tar -o cas-${{ matrix.chunk }}.tar.zst
+          echo "Compressed CAS archive: $(du -sh cas-${{ matrix.chunk }}.tar.zst | cut -f1)"
 
-          echo -e "FROM docker.io/library/busybox:latest\nCOPY cas-${{ matrix.chunk }}.tar /cas.tar" > Dockerfile
-          podman build -t "$LATEST_TAG" .
-          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          # Push to GHCR as OCI artifact — always update :latest
+          oras push "$LATEST_REF" cas-${{ matrix.chunk }}.tar.zst:application/vnd.buildstream.cas.tar.zst
+          echo "Pushed latest cache: $LATEST_REF"
 
-          podman push "$LATEST_TAG"
+          # If build succeeded, also tag with the strict cache key
           if [ "${{ steps.build.outcome }}" == "success" ]; then
-            podman tag "$LATEST_TAG" "$IMAGE_TAG"
-            podman push "$IMAGE_TAG"
-            echo "Pushed strict cache: $IMAGE_TAG"
+            oras push "$CHUNK_REF" cas-${{ matrix.chunk }}.tar.zst:application/vnd.buildstream.cas.tar.zst
+            echo "Pushed strict cache: $CHUNK_REF"
           fi
-
-      - name: Upload CAS Artifact
-        if: steps.cache_check.outputs.cache_hit != 'true' && steps.build.outputs.skipped != 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: cas-${{ matrix.chunk }}
-          path: cas-${{ matrix.chunk }}.tar
-          retention-days: 1
-          if-no-files-found: ignore
-
-      # If cache hit, download from GHCR instead of building
-      - name: Restore cached chunk artifact
-        if: steps.cache_check.outputs.cache_hit == 'true'
-        run: |
-          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE_TAG="ghcr.io/${REPO_LOWER}/cache-${{ matrix.chunk }}:${CHUNK_CACHE_KEY}"
-
-          mkdir -p ~/.cache/buildstream
-          if podman pull "$IMAGE_TAG"; then
-            if id=$(podman create "$IMAGE_TAG" true 2>/dev/null); then
-                if podman cp "$id":/cas.tar cas-${{ matrix.chunk }}.tar; then
-                    echo "Extracted cached chunk."
-                fi
-                podman rm "$id"
-            fi
-          fi
-
-      - name: Upload CAS Artifact (from cache)
-        if: steps.cache_check.outputs.cache_hit == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: cas-${{ matrix.chunk }}
-          path: cas-${{ matrix.chunk }}.tar
-          retention-days: 1
-          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -416,26 +393,66 @@ jobs:
       - name: Setup Just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
 
-      - name: Download and Merge CAS Chunks
+      - name: Setup ORAS
+        uses: oras-project/setup-oras@v1
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Download and Merge CAS Chunks from GHCR
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MATRIX_KEYS: ${{ needs.planning.outputs.matrix_keys }}
+          CACHE_KEYS: ${{ needs.planning.outputs.cache_keys }}
         run: |
           mkdir -p ~/.cache/buildstream
+
+          # First, restore core CAS
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          CORE_REF="ghcr.io/${REPO_LOWER}/cache-core:latest"
+          echo "Restoring core CAS..."
+          if oras pull "$CORE_REF" -o .; then
+            if [ -f cas-core.tar.zst ]; then
+              zstd -d -T0 cas-core.tar.zst -o cas-core.tar
+              tar -xf cas-core.tar -C "$HOME/.cache/buildstream"
+              rm -f cas-core.tar cas-core.tar.zst
+              echo "Core CAS restored."
+            fi
+          fi
+
+          # Then, restore each chunk CAS
           echo "Processing chunks..."
           echo "$MATRIX_KEYS" | jq -r '.[]' | while read -r chunk; do
-            artifact_name="cas-${chunk}"
-            echo "Downloading $artifact_name..."
-            gh run download ${{ github.run_id }} -n "$artifact_name" --dir temp_artifact || {
-              echo "WARNING: Failed to download $artifact_name, skipping"
-              continue
-            }
+            # Try the strict cache key first, fall back to latest
+            CACHE_KEY=$(echo "$CACHE_KEYS" | jq -r --arg c "$chunk" '.[$c] // empty')
+            PULLED=false
 
-            echo "Extracting $artifact_name..."
-            tar -xf temp_artifact/cas-${chunk}.tar -C "$HOME/.cache/buildstream"
+            if [ -n "$CACHE_KEY" ]; then
+              STRICT_REF="ghcr.io/${REPO_LOWER}/cache-${chunk}:${CACHE_KEY}"
+              echo "Trying strict cache: $STRICT_REF"
+              if oras pull "$STRICT_REF" -o .; then
+                PULLED=true
+              fi
+            fi
 
-            echo "Cleaning up $artifact_name..."
-            rm -rf temp_artifact
+            if [ "$PULLED" = "false" ]; then
+              LATEST_REF="ghcr.io/${REPO_LOWER}/cache-${chunk}:latest"
+              echo "Falling back to latest: $LATEST_REF"
+              oras pull "$LATEST_REF" -o . || {
+                echo "WARNING: Failed to pull cache for $chunk, skipping"
+                continue
+              }
+            fi
+
+            # Find and extract the CAS tarball
+            TARBALL="cas-${chunk}.tar.zst"
+            if [ -f "$TARBALL" ]; then
+              echo "Extracting $TARBALL..."
+              zstd -d -T0 "$TARBALL" -o "cas-${chunk}.tar"
+              tar -xf "cas-${chunk}.tar" -C "$HOME/.cache/buildstream"
+              rm -f "$TARBALL" "cas-${chunk}.tar"
+            else
+              echo "WARNING: No $TARBALL found after pull, skipping"
+            fi
           done
 
           echo "CAS merge complete."
