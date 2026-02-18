@@ -11,8 +11,6 @@
 *.tar
 .ovmf-vars.fd
 .build-out
-*.log
-logs/
 
 # Local AI agent state (opencode sessions, drafts)
 # Skills are committed; everything else is ignored
@@ -21,8 +19,3 @@ logs/
 
 # Git worktrees
 .worktrees/
-
-# Chunkah checkout
-chunkah/
-
-.cache/
