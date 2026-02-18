@@ -371,22 +371,8 @@ show-me-the-future:
     fi
 
 # ── Chunkah ──────────────────────────────────────────────────────────
-build-chunkah-tool:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    
-    # Use sudo unless already root (CI runners are root)
-    SUDO_CMD=""
-    if [ "$(id -u)" -ne 0 ]; then
-        SUDO_CMD="sudo"
-    fi
-
-    if [ ! -d "chunkah" ]; then
-        git clone https://github.com/coreos/chunkah.git
-    fi
-    $SUDO_CMD podman build --security-opt label=type:unconfined_t --build-arg FINAL_FROM=rootfs -t chunkah-tool chunkah/
-
-chunkify image_ref: build-chunkah-tool
+# Use the pre-built chunkah image from quay.io
+chunkify image_ref:
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -408,7 +394,7 @@ chunkify image_ref: build-chunkah-tool
         --security-opt label=type:unconfined_t \
         --mount=type=image,src="{{image_ref}}",dest=/chunkah \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
-        chunkah-tool build | $SUDO_CMD podman load)
+        quay.io/jlebon/chunkah:latest build | $SUDO_CMD podman load)
     
     echo "$LOADED"
     

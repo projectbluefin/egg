@@ -26,11 +26,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Checkout chunkah
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          repository: coreos/chunkah
-          path: chunkah
 
       - name: Pull BuildStream container image
         run: podman pull "$BST2_IMAGE"
