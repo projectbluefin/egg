@@ -137,9 +137,6 @@ jobs:
           just export
           echo "image_ref=${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
 
-      - name: Chunkify OCI image
-        run: just chunkify "${{ env.IMAGE_NAME }}:latest"
-
       - name: Verify image loaded
         run: sudo podman images
 

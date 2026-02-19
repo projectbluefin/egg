@@ -57,8 +57,6 @@ build:
 
     just export
 
-    just chunkify "${image_name}:${image_tag}"
-
 # ── Export ─────────────────────────────────────────────────────────────
 # Checkout the built OCI image from BuildStream and load it into podman.
 # Assumes `bst build oci/bluefin.bst` has already completed.
@@ -109,6 +107,9 @@ export:
 
     echo "==> Export complete. Image loaded as {{image_name}}:{{image_tag}}"
     $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
+
+    # Step: Chunkify (reorganize layers)
+    just chunkify "{{image_name}}:{{image_tag}}"
 
 # ── Clean ─────────────────────────────────────────────────────────────
 # Remove generated artifacts (disk image, OVMF vars, build output).
