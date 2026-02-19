@@ -1,4 +1,4 @@
-From 736f7794f272f9d9e4b60e9f3a7f32f40518addf Mon Sep 17 00:00:00 2001
+From 103b4e68d1c80c2a276530571100b9218b65462d Mon Sep 17 00:00:00 2001
 From: Valentin David <me@valentindavid.com>
 Date: Sun, 16 Nov 2025 10:24:28 +0100
 Subject: [PATCH] Automatically generate keys
@@ -152,7 +152,7 @@ index 597a355cf8..16cffcf102 100644
  
  build-depends:
 diff --git a/elements/gnomeos/debug/layer.bst b/elements/gnomeos/debug/layer.bst
-index 509f0e2c6b..d40d6be27f 100644
+index c5d33564e3..b542ebaa46 100644
 --- a/elements/gnomeos/debug/layer.bst
 +++ b/elements/gnomeos/debug/layer.bst
 @@ -10,10 +10,10 @@ build-depends:
@@ -171,7 +171,7 @@ index 509f0e2c6b..d40d6be27f 100644
  variables:
    repart-seed: 0dc2e590-c162-4ed3-992f-75ddb3fdbb65
 diff --git a/elements/gnomeos/devel/layer.bst b/elements/gnomeos/devel/layer.bst
-index a757f5eb36..510953dd67 100644
+index ca487f70e4..9576c82f38 100644
 --- a/elements/gnomeos/devel/layer.bst
 +++ b/elements/gnomeos/devel/layer.bst
 @@ -15,10 +15,10 @@ build-depends:
@@ -284,7 +284,7 @@ index c460e95dc1..b57145fbb6 100644
  variables:
    repart-seed: a19b0f25-42ac-4c92-8921-d8d4079ec140
 diff --git a/elements/gnomeos/nvidia-runtime/layer.bst b/elements/gnomeos/nvidia-runtime/layer.bst
-index 1af4cb2401..4d56c39338 100644
+index b1d630d6d0..93406141b1 100644
 --- a/elements/gnomeos/nvidia-runtime/layer.bst
 +++ b/elements/gnomeos/nvidia-runtime/layer.bst
 @@ -15,10 +15,10 @@ build-depends:
@@ -354,7 +354,7 @@ index a30e75a374..40eee8493c 100644
 +- kind: generated
 +  path: DB.crt
 diff --git a/elements/gnomeos/signed-boot.bst b/elements/gnomeos/signed-boot.bst
-index faa519180e..2a7f886000 100644
+index 1b92008746..30a715d8d8 100644
 --- a/elements/gnomeos/signed-boot.bst
 +++ b/elements/gnomeos/signed-boot.bst
 @@ -120,15 +120,15 @@ config:
@@ -386,7 +386,7 @@ index faa519180e..2a7f886000 100644
 +- kind: generated
 +  path: fstab-tpm2-pcr-private.pem
 diff --git a/elements/gnomeos/snapd/layer.bst b/elements/gnomeos/snapd/layer.bst
-index a16924ed63..1ee112fd9a 100644
+index b8f84071c6..8cbf91d161 100644
 --- a/elements/gnomeos/snapd/layer.bst
 +++ b/elements/gnomeos/snapd/layer.bst
 @@ -15,10 +15,10 @@ build-depends:
@@ -405,12 +405,12 @@ index a16924ed63..1ee112fd9a 100644
  variables:
    sysroot-seed: df2427db-01ec-4c99-96b1-be3edb3cd9f6
 diff --git a/project.conf b/project.conf
-index 1e17fe0db1..50cc27612a 100644
+index adac2a1ef5..f6c36ca278 100644
 --- a/project.conf
 +++ b/project.conf
-@@ -58,6 +58,17 @@ options:
-     description: Enable x86_64-v3 (EXPERIMENTAL)
-     default: false
+@@ -65,6 +65,17 @@ options:
+       - nightly
+       - stable
  
 +  key_mode:
 +    type: enum
@@ -426,7 +426,7 @@ index 1e17fe0db1..50cc27612a 100644
  # Some overrides to the default sandbox execution environment
  #
  environment:
-@@ -129,6 +140,22 @@ sources:
+@@ -136,6 +147,22 @@ sources:
        git-mirrors:
          https://github.com/: "github:"
          https://gitlab.gnome.org/GNOME/: "gnome:"
@@ -449,7 +449,7 @@ index 1e17fe0db1..50cc27612a 100644
  
  split-rules:
    devel:
-@@ -219,3 +246,8 @@ plugins:
+@@ -226,3 +253,8 @@ plugins:
    elements:
    - collect_initial_scripts
    - cargo

@@ -1,0 +1,27 @@
+From f6bf21608bf63c38b56352cf5781f699dea0af18 Mon Sep 17 00:00:00 2001
+From: freedesktop_sdk_updater <freedesktop_sdk_updater@libreml.com>
+Date: Mon, 2 Feb 2026 06:22:28 +0000
+Subject: [PATCH] Update elements/components/shadow.bst to 4.19.3-0
+
+Updates elements/components/shadow.bst to 4.19.3-0 (64b4c10)
+Previous version was 4.19.2-0 (a7eca27)
+
+Updates elements/components/shadow.bst to 4.19.2-0 (a7eca27)
+Previous version was 4.19.0-0 (d7ce7e8)
+---
+ elements/components/shadow.bst | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/elements/components/shadow.bst b/elements/components/shadow.bst
+index 94225429a3..4782f5ec8a 100644
+--- a/elements/components/shadow.bst
++++ b/elements/components/shadow.bst
+@@ -60,4 +60,4 @@ sources:
+   track: '*.*'
+   exclude:
+   - '*-rc*'
+-  ref: 4.19.0-0-gd7ce7e868ed0dd6c17d4a422700e3da1e111e01c
++  ref: 4.19.3-0-g64b4c10c9a0c7b24635787c0051a785426df64aa
+-- 
+GitLab
+
