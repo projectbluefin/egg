@@ -19,6 +19,9 @@ depends:
   - bluefin/gum.bst
   - bluefin/fzf.bst
 
+  - bluefin/zsh.bst
+  - bluefin/zsh-defaults.bst
+
   - bluefin/common.bst
   - bluefin/wallpapers.bst
 
