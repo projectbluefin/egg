@@ -251,7 +251,7 @@ boot-vm $base_dir=base_dir:
             -device virtio-keyboard \
             -device virtio-mouse \
             -device virtio-net-pci,netdev=net0 \
-            -netdev user,id=net0 \
+            -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
             -chardev stdio,id=char0,mux=on,signal=off \
             -serial chardev:char0 \
             -serial chardev:char0 \
@@ -284,6 +284,9 @@ boot-vm $base_dir=base_dir:
             --device /dev/kvm \
             --pull=always \
             --publish "127.0.0.1:${port}:8006" \
+            --publish "127.0.0.1:2222:22" \
+            --env "USER_PORTS=22" \
+            --env "NETWORK=user" \
             --env "CPU_CORES={{vm_cpus}}" \
             --env "RAM_SIZE={{vm_ram}}" \
             --env "TPM=y" \
