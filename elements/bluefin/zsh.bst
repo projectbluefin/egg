@@ -11,6 +11,7 @@ depends:
 variables:
   strip-binaries: ""
   conf-local: |
+    CPPFLAGS="${CPPFLAGS} -DHAVE_BOOLCODES" \
     --enable-multibyte \
     --enable-pcre \
     --enable-cap \
