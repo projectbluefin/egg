@@ -163,88 +163,165 @@ generate-bootable-image $base_dir=base_dir $filesystem=filesystem:
         --karg splash \
         --karg quiet \
         --karg console=tty0 \
+        --karg console=ttyS0 \
         --karg systemd.debug_shell=ttyS1
 
     echo "==> Bootable disk image ready: ${base_dir}/bootable.raw"
+    sync
+    
+    # Remove stale qcow2 so boot-vm uses the fresh raw image
+    rm -f "${base_dir}/bootable.qcow2"
 
-# ── Boot VM ───────────────────────────────────────────────────────────
-# Boot the raw disk image in QEMU with UEFI (OVMF).
-# Requires: qemu-system-x86_64, OVMF firmware, KVM access
+# ── Boot VM ──────────────────────────────────────────────────────────
+# Boot the raw disk image.
+# If qemu-system-x86_64 is installed, runs natively (UEFI/OVMF).
+# Otherwise, falls back to running via docker.io/qemux/qemu-docker.
 [group('test')]
 boot-vm $base_dir=base_dir:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    DISK="${base_dir}/bootable.raw"
+    # Resolve absolute path for Docker volume mount
+    DISK=$(realpath "{{base_dir}}/bootable.raw")
     if [ ! -e "$DISK" ]; then
         echo "ERROR: ${DISK} not found. Run 'just generate-bootable-image' first." >&2
         exit 1
     fi
 
-    # Auto-detect OVMF firmware paths
-    OVMF_CODE=""
-    for candidate in \
-        /usr/share/edk2/ovmf/OVMF_CODE.fd \
-        /usr/share/OVMF/OVMF_CODE.fd \
-        /usr/share/OVMF/OVMF_CODE_4M.fd \
-        /usr/share/edk2/x64/OVMF_CODE.4m.fd \
-        /usr/share/qemu/OVMF_CODE.fd; do
-        if [ -f "$candidate" ]; then
-            OVMF_CODE="$candidate"
-            break
-        fi
-    done
-    if [ -z "$OVMF_CODE" ]; then
-        echo "ERROR: OVMF firmware not found. Install edk2-ovmf (Fedora) or ovmf (Debian/Ubuntu)." >&2
-        exit 1
-    fi
-
-    # OVMF_VARS must be writable -- use a local copy
-    OVMF_VARS="${base_dir}/.ovmf-vars.fd"
-    if [ ! -e "$OVMF_VARS" ]; then
-        OVMF_VARS_SRC=""
+    # Check for native QEMU
+    if command -v qemu-system-x86_64 &>/dev/null; then
+        echo "==> Using native qemu-system-x86_64..."
+        
+        # Auto-detect OVMF firmware paths
+        OVMF_CODE=""
         for candidate in \
-            /usr/share/edk2/ovmf/OVMF_VARS.fd \
-            /usr/share/OVMF/OVMF_VARS.fd \
-            /usr/share/OVMF/OVMF_VARS_4M.fd \
-            /usr/share/edk2/x64/OVMF_VARS.4m.fd \
-            /usr/share/qemu/OVMF_VARS.fd; do
+            /usr/share/edk2/ovmf/OVMF_CODE.fd \
+            /usr/share/OVMF/OVMF_CODE.fd \
+            /usr/share/OVMF/OVMF_CODE_4M.fd \
+            /usr/share/edk2/x64/OVMF_CODE.4m.fd \
+            /usr/share/qemu/OVMF_CODE.fd; do
             if [ -f "$candidate" ]; then
-                OVMF_VARS_SRC="$candidate"
+                OVMF_CODE="$candidate"
                 break
             fi
         done
-        if [ -z "$OVMF_VARS_SRC" ]; then
-            echo "ERROR: OVMF_VARS not found alongside OVMF_CODE." >&2
+        if [ -z "$OVMF_CODE" ]; then
+            echo "ERROR: OVMF firmware not found. Install edk2-ovmf (Fedora) or ovmf (Debian/Ubuntu)." >&2
             exit 1
         fi
-        cp "$OVMF_VARS_SRC" "$OVMF_VARS"
+
+        # OVMF_VARS must be writable -- use a local copy
+        OVMF_VARS="{{base_dir}}/.ovmf-vars.fd"
+        if [ ! -e "$OVMF_VARS" ]; then
+            OVMF_VARS_SRC=""
+            for candidate in \
+                /usr/share/edk2/ovmf/OVMF_VARS.fd \
+                /usr/share/OVMF/OVMF_VARS.fd \
+                /usr/share/OVMF/OVMF_VARS_4M.fd \
+                /usr/share/edk2/x64/OVMF_VARS.4m.fd \
+                /usr/share/qemu/OVMF_VARS.fd; do
+                if [ -f "$candidate" ]; then
+                    OVMF_VARS_SRC="$candidate"
+                    break
+                fi
+            done
+            if [ -z "$OVMF_VARS_SRC" ]; then
+                echo "ERROR: OVMF_VARS not found alongside OVMF_CODE." >&2
+                exit 1
+            fi
+            cp "$OVMF_VARS_SRC" "$OVMF_VARS"
+        fi
+
+        echo "==> Booting ${DISK} in QEMU (UEFI, KVM)..."
+        echo "    Firmware: ${OVMF_CODE}"
+        echo "    RAM: {{vm_ram}}M, CPUs: {{vm_cpus}}"
+        echo "    Serial debug shell on ttyS1 available via QEMU monitor"
+        echo ""
+
+        qemu-system-x86_64 \
+            -enable-kvm \
+            -m "{{vm_ram}}" \
+            -cpu host \
+            -smp "{{vm_cpus}}" \
+            -drive file="${DISK}",format=raw,if=virtio \
+            -drive if=pflash,format=raw,readonly=on,file="${OVMF_CODE}" \
+            -drive if=pflash,format=raw,file="${OVMF_VARS}" \
+            -device virtio-vga \
+            -display gtk \
+            -device virtio-keyboard \
+            -device virtio-mouse \
+            -device virtio-net-pci,netdev=net0 \
+            -netdev user,id=net0 \
+            -chardev stdio,id=char0,mux=on,signal=off \
+            -serial chardev:char0 \
+            -serial chardev:char0 \
+            -mon chardev=char0
+
+    else
+        echo "==> qemu-system-x86_64 not found, falling back to docker.io/qemux/qemu-docker..."
+
+        # Check for qcow2 image, prefer it if exists
+        BOOT_MOUNT="/boot.img"
+        if [ -e "{{base_dir}}/bootable.qcow2" ]; then
+            DISK=$(realpath "{{base_dir}}/bootable.qcow2")
+            BOOT_MOUNT="/boot.qcow2"
+        fi
+
+        # Determine which port to use (adapted from user snippet)
+        port=8006
+        while grep -q :${port} <<< $(ss -tunalp); do
+            port=$(( port + 1 ))
+        done
+        echo "==> Web/VNC accessible at http://localhost:${port}"
+        
+        # Try to open browser
+        xdg-open "http://localhost:${port}" &>/dev/null || true
+
+        # Run via podman
+        # Per docs: mounting to /boot.img or /boot.qcow2 bypasses BOOT and uses the local file directly
+        podman run \
+            --rm --privileged \
+            --device /dev/kvm \
+            --pull=always \
+            --publish "127.0.0.1:${port}:8006" \
+            --env "CPU_CORES={{vm_cpus}}" \
+            --env "RAM_SIZE={{vm_ram}}" \
+            --env "TPM=y" \
+            --env "BOOT_MODE=${BOOT_MODE:-uefi}" \
+            --env "ARGUMENTS=-snapshot" \
+            --volume "${DISK}:${BOOT_MOUNT}" \
+            ghcr.io/qemus/qemu:latest
     fi
 
-    echo "==> Booting ${DISK} in QEMU (UEFI, KVM)..."
-    echo "    Firmware: ${OVMF_CODE}"
-    echo "    RAM: {{vm_ram}}M, CPUs: {{vm_cpus}}"
-    echo "    Serial debug shell on ttyS1 available via QEMU monitor"
-    echo ""
-
-    qemu-system-x86_64 \
-        -enable-kvm \
-        -m "{{vm_ram}}" \
-        -cpu host \
-        -smp "{{vm_cpus}}" \
-        -drive file="${DISK}",format=raw,if=virtio \
-        -drive if=pflash,format=raw,readonly=on,file="${OVMF_CODE}" \
-        -drive if=pflash,format=raw,file="${OVMF_VARS}" \
-        -device virtio-vga \
-        -display gtk \
-        -device virtio-keyboard \
-        -device virtio-mouse \
-        -device virtio-net-pci,netdev=net0 \
-        -netdev user,id=net0 \
-        -chardev stdio,id=char0,mux=on,signal=off \
-        -serial chardev:char0 \
-        -serial chardev:char0 \
-        -mon chardev=char0
+# ── Convert to qcow2 ──────────────────────────────────────────────────
+# Convert raw disk image to qcow2 format for better performance/compat.
+[group('test')]
+convert-to-qcow2 $base_dir=base_dir:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    RAW="{{base_dir}}/bootable.raw"
+    QCOW2="{{base_dir}}/bootable.qcow2"
+    
+    if [ ! -e "$RAW" ]; then
+        echo "ERROR: ${RAW} not found. Run 'just generate-bootable-image' first." >&2
+        exit 1
+    fi
+    
+    echo "==> Converting ${RAW} to ${QCOW2}..."
+    
+    if command -v qemu-img &>/dev/null; then
+        qemu-img convert -f raw -O qcow2 "$RAW" "$QCOW2"
+    else
+        # Use the same container image to run qemu-img
+        echo "    Using containerized qemu-img..."
+        podman run --rm \
+            -v "{{base_dir}}:/data" \
+            --entrypoint qemu-img \
+            ghcr.io/qemus/qemu:latest \
+            convert -f raw -O qcow2 "/data/bootable.raw" "/data/bootable.qcow2"
+    fi
+    echo "==> Conversion complete: ${QCOW2}"
 
 # ── Show me the future ────────────────────────────────────────────────
 # The full end-to-end: build the OCI image, install it to a bootable
