@@ -8,7 +8,7 @@ on:
 env:
   IMAGE_NAME: egg
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-  BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:f89b4aef847ef040b345acceda15a850219eb8f1
+  BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:02bfebd4a9f9924ec7a67ba01623331e30e9348f
 
 # Only one build at a time. If a manual dispatch arrives while a scheduled
 # build is running, the in-progress run is cancelled.
@@ -20,28 +20,23 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     permissions:
+      id-token: write
       contents: read
       packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Get JWT token
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const token = await core.getIDToken('cache.projectbluefin.io')
+            fs.writeFileSync('bluefin.token', token, { mode: 0o600 });
 
       - name: Pull BuildStream container image
         run: podman pull "$BST2_IMAGE"
-
-      - name: Mount BuildStream cache (sticky disk)
-        uses: useblacksmith/stickydisk@v1
-        with:
-          key: ${{ github.repository }}-bst-cache
-          path: /home/runner/.cache/buildstream
-
-      - name: Prepare BuildStream cache layout
-        run: |
-          mkdir -p /home/runner/.cache/buildstream/{cas,artifacts,source_protos,sources}
-          echo "=== Sticky disk status ==="
-          du -sh /home/runner/.cache/buildstream/{cas,artifacts,source_protos,sources} 2>/dev/null || true
-          df -h /home/runner/.cache/buildstream
 
       - name: Setup Just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
@@ -53,24 +48,21 @@ jobs:
       # ── Generate CI-specific BuildStream config ───────────────────────
       # Tuned per gnome-build-meta CI patterns:
       # - on-error: continue  -> find ALL failures, don't stop at first
-      # - fetchers: 12        -> parallel downloads from upstream caches
-      # - builders: 1         -> conservative to avoid OOM
+      # - fetchers: 32        -> parallel downloads from upstream caches
+      # - builders: 0         -> Concurrent builds are controlled in the casd server
       # - retry-failed: True  -> auto-retry flaky builds
       # - error-lines: 80     -> generous error context in logs
       # - cache-buildtrees: never -> save disk (we only need final artifacts)
       #
-      # No remote artifact server is configured. BuildStream uses only:
-      # 1. Local disk cache (persisted by sticky disk)
-      # 2. Upstream GNOME caches defined in project.conf (read-only)
-
       - name: Generate BuildStream CI config
         run: |
           mkdir -p logs
+          builders="$(( $(nproc) / 4 ))"
           cat > buildstream-ci.conf <<'BSTCONF'
           scheduler:
             on-error: continue
-            fetchers: 12
-            builders: 1
+            fetchers: 32
+            builders: 4
             network-retries: 3
 
           logging:
@@ -78,11 +70,64 @@ jobs:
             error-lines: 80
 
           build:
-            max-jobs: 0
             retry-failed: True
 
+          artifacts:
+            # override-project-caches: true
+            servers:
+            - url: https://cache.projectbluefin.io:11004
+              push: true
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 500
+                request-timeout: 180
+              auth:
+                access-token: /src/bluefin.token
+
+          source-caches:
+            # override-project-caches: true
+            servers:
+            - url: https://cache.projectbluefin.io:11004
+              push: true
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 500
+                request-timeout: 180
+              auth:
+                access-token: /src/bluefin.token
+
           cache:
-            cache-buildtrees: never
+            storage-service:
+              url: https://cache.projectbluefin.io:11004
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 500
+                request-timeout: 180
+              auth:
+                access-token: /src/bluefin.token
+
+          remote-execution:
+            execution-service:
+              url: https://cache.projectbluefin.io:11004
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 500
+                request-timeout: 180
+              auth:
+                access-token: /src/bluefin.token
+            action-cache-service:
+              url: https://cache.projectbluefin.io:11004
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 500
+                request-timeout: 180
+              auth:
+                access-token: /src/bluefin.token
           BSTCONF
 
           echo "=== BuildStream CI config ==="
@@ -100,18 +145,6 @@ jobs:
         run: |
           just bst --log-file /src/logs/build.log build oci/bluefin.bst
         timeout-minutes: 120
-
-      - name: Cache and disk status
-        if: always()
-        run: |
-          echo "=== Disk usage ==="
-          df -h /home/runner/.cache/buildstream / 2>/dev/null || df -h /
-          echo ""
-          echo "=== BuildStream cache breakdown ==="
-          du -sh /home/runner/.cache/buildstream/{cas,artifacts,source_protos,sources} 2>/dev/null || true
-          echo ""
-          echo "=== Total ==="
-          du -sh /home/runner/.cache/buildstream/ 2>/dev/null || true
 
       # ── Export OCI image ──────────────────────────────────────────────
       # Uses the Justfile's `export` recipe: checks out the OCI image
@@ -140,6 +173,11 @@ jobs:
       - name: Validate with bootc container lint
         run: |
            just lint
+
+      # Delete jwt token just in case
+      - name: Delete token
+        if: always()
+        run: rm -f bluefin.token
 
       # ── Upload build logs ─────────────────────────────────────────────
       # Always upload, even on failure, so build failures can be diagnosed.
