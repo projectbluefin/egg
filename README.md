@@ -1,8 +1,34 @@
-![Conga](https://github.com/user-attachments/assets/2e3dc15c-4f49-48e4-98f8-bcf448f8af2f)
+# Bluefin
+*Dakotaraptor steini*
 
-# egg
+[Bluefin's](https://projectbluefin.io) final form. 
 
-Bluefin's Primal Form -- smol. Local workflows prioritized.
+> How dare you.
+>
+> -- John Bazzite
+
+`projectbluefin/dakota` is built on [GNOME OS](https://os.gnome.org/). This is a prototype and not ready and may bite.
+
+![Dakorator](https://github.com/user-attachments/assets/ee92291d-a617-496e-abb6-9045a4c665ce)
+
+## Status
+
+- Consume GNOME nightly bootc image (done)
+- Final assembly in this repo (done)
+
+## Goals
+
+- No dx image, everything in homebrew or sysexts
+
+## Missing things
+
+- Installation
+- Ensuring upgrades and rollbacks work
+
+## Get started
+    git clone https://github.com/projectbluefin/dakota.git
+    cd dakota
+    just show-me-the-future
 
 ## Trying it: 
 
