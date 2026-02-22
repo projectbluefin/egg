@@ -43,7 +43,7 @@ bst *ARGS:
         -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
         -w /src \
         "{{bst2_image}}" \
-        bash -c 'umask 0022 && bst --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
+        bash -c 'umask 0022 && bst --debug --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
 
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.

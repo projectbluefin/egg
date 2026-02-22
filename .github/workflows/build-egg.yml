@@ -66,6 +66,7 @@ jobs:
             error-lines: 80
 
           cachedir: /tmp/cache
+          logdir: /src/logs
 
           build:
             retry-failed: True
@@ -115,13 +116,12 @@ jobs:
       # Uses the Justfile's `bst` wrapper to run BuildStream inside the
       # bst2 container. CI-specific flags (--no-interactive, --config)
       # are injected via BST_FLAGS env var.
-      # Additional --log-file flag is passed directly (build-specific).
 
       - name: Build OCI image with BuildStream
         env:
           BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
         run: |
-          just bst --log-file /src/logs/build.log build oci/bluefin.bst
+          just bst build oci/bluefin.bst
         timeout-minutes: 120
 
       # ── Export OCI image ──────────────────────────────────────────────
