@@ -487,6 +487,50 @@ chunkify image_ref:
         $SUDO_CMD podman tag "$NEW_REF" "{{image_ref}}"
     fi
 
+# ── bcvk (fast VM testing) ───────────────────────────────────────────
+# Boot the built image instantly in an ephemeral VM via bcvk.
+# No disk image needed -- boots directly from the container via virtiofs.
+# Requires: bcvk, qemu-kvm, virtiofsd (sudo dnf install bcvk qemu-kvm virtiofsd)
+[group('test')]
+boot-fast:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Use sudo unless already root
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+
+    if ! $SUDO_CMD podman image exists "{{image_name}}:{{image_tag}}"; then
+        echo "ERROR: Image '{{image_name}}:{{image_tag}}' not found in podman." >&2
+        echo "Run 'just build' first to build and export the OCI image." >&2
+        exit 1
+    fi
+
+    echo "==> Booting {{image_name}}:{{image_tag}} in ephemeral VM (bcvk)..."
+    echo "    RAM: {{vm_ram}}M, CPUs: {{vm_cpus}}"
+    echo "    No disk image -- boots directly via virtiofs"
+    echo ""
+    $SUDO_CMD bcvk ephemeral run-ssh \
+        --memory "{{vm_ram}}M" \
+        --vcpus "{{vm_cpus}}" \
+        "localhost/{{image_name}}:{{image_tag}}"
+
+# Inspect the built bootc image.
+[group('info')]
+inspect:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Use sudo unless already root
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+
+    $SUDO_CMD bcvk images list
+
 # ── Lint ─────────────────────────────────────────────────────────────
 [group('test')]
 lint:
