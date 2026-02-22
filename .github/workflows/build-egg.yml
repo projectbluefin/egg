@@ -8,7 +8,6 @@ on:
 env:
   IMAGE_NAME: egg
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-  BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2
 
 # Only one build at a time. If a manual dispatch arrives while a scheduled
 # build is running, the in-progress run is cancelled.
@@ -34,9 +33,6 @@ jobs:
             const fs = require('fs');
             const token = await core.getIDToken('cache.projectbluefin.io')
             fs.writeFileSync('bluefin.token', token, { mode: 0o600 });
-
-      - name: Pull BuildStream container image
-        run: podman pull "$BST2_IMAGE"
 
       - name: Setup Just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
