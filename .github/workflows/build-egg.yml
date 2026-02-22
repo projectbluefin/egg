@@ -31,7 +31,7 @@ jobs:
         run: podman pull "$BST2_IMAGE"
 
       - name: Mount BuildStream cache (sticky disk)
-        uses: useblacksmith/stickydisk@v1
+        uses: useblacksmith/stickydisk@18dec295a653142036063064b24678d434710e56 # v1
         with:
           key: ${{ github.repository }}-bst-cache
           path: /home/runner/.cache/buildstream
