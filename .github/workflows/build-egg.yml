@@ -54,6 +54,9 @@ jobs:
         run: |
           mkdir -p logs
           builders="$(( $(nproc) / 4 ))"
+          # Setup certificate for pushing to the cache
+          echo "$CASD_CLIENT_CERT" > client.crt
+          echo "$CASD_CLIENT_KEY" > client.key
           cat > buildstream-ci.conf <<'BSTCONF'
           scheduler:
             on-error: continue
@@ -82,7 +85,8 @@ jobs:
                 retry-delay: 500
                 request-timeout: 180
               auth:
-                access-token: /src/bluefin.token
+                client-key: /src/client.key
+                client-cert: /src/client.crt
 
           source-caches:
             # override-project-caches: true
@@ -95,7 +99,8 @@ jobs:
                 retry-delay: 500
                 request-timeout: 180
               auth:
-                access-token: /src/bluefin.token
+                client-key: /src/client.key
+                client-cert: /src/client.crt
 
           cache:
             storage-service:
@@ -106,7 +111,8 @@ jobs:
                 retry-delay: 500
                 request-timeout: 180
               auth:
-                access-token: /src/bluefin.token
+                client-key: /src/client.key
+                client-cert: /src/client.crt
 
           remote-execution:
             execution-service:
@@ -117,7 +123,8 @@ jobs:
                 retry-delay: 500
                 request-timeout: 180
               auth:
-                access-token: /src/bluefin.token
+                client-key: /src/client.key
+                client-cert: /src/client.crt
             action-cache-service:
               url: https://cache.projectbluefin.io:11004
               connection-config:
@@ -126,7 +133,8 @@ jobs:
                 retry-delay: 500
                 request-timeout: 180
               auth:
-                access-token: /src/bluefin.token
+                client-key: /src/client.key
+                client-cert: /src/client.crt
           BSTCONF
 
           echo "=== BuildStream CI config ==="
