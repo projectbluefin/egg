@@ -65,6 +65,8 @@ jobs:
             message-format: '[%{wallclock}][%{elapsed}][%{key}][%{element}] %{action} %{message}'
             error-lines: 80
 
+          cachedir: /tmp/cache
+
           build:
             retry-failed: True
 
