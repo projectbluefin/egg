@@ -10,7 +10,7 @@ export base_dir := env("BUILD_BASE_DIR", ".")
 export filesystem := env("BUILD_FILESYSTEM", "btrfs")
 
 # Same bst2 container image CI uses -- pinned by SHA for reproducibility
-export bst2_image := env("BST2_IMAGE", "registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:f89b4aef847ef040b345acceda15a850219eb8f1")
+export bst2_image := env("BST2_IMAGE", "registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2")
 
 # VM settings
 export vm_ram := env("VM_RAM", "8192")
@@ -43,7 +43,7 @@ bst *ARGS:
         -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
         -w /src \
         "{{bst2_image}}" \
-        bash -c 'ulimit -n 1048576 || true; bst --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
+        bash -c 'umask 0022 && bst --debug --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
 
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.
