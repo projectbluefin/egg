@@ -107,6 +107,26 @@ jobs:
                 request-timeout: 180
               auth:
                 access-token: /src/bluefin.token
+
+          remote-execution:
+            execution-service:
+              url: https://cache.projectbluefin.io:11004
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 500
+                request-timeout: 180
+              auth:
+                access-token: /src/bluefin.token
+            action-cache-service:
+              url: https://cache.projectbluefin.io:11004
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 500
+                request-timeout: 180
+              auth:
+                access-token: /src/bluefin.token
           BSTCONF
 
           echo "=== BuildStream CI config ==="
