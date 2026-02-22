@@ -205,17 +205,24 @@ jobs:
             --jq '[.[] | select(.tag_name | startswith("homebrew-"))][0].tag_name')
           echo "Latest brew release: $BREW_RELEASE"
 
-          BST_FILE="elements/bluefin/brew-tarball.bst"
-          CURRENT_TAG=$(grep -oP 'download/\K[^/]+' "$BST_FILE")
+          BST_FILE_X86="elements/bluefin/brew-tarball-x86_64.bst"
+          BST_FILE_ARM="elements/bluefin/brew-tarball-aarch64.bst"
+          CURRENT_TAG=$(grep -oP 'download/\K[^/]+' "$BST_FILE_X86")
           echo "Current tag: $CURRENT_TAG"
 
           if [ "$BREW_RELEASE" != "$CURRENT_TAG" ]; then
             echo "Brew tarball needs update: $CURRENT_TAG -> $BREW_RELEASE"
-            NEW_URL="https://github.com/ublue-os/packages/releases/download/${BREW_RELEASE}/homebrew-x86_64.tar.zst"
-            NEW_SHA=$(curl -fsSL "$NEW_URL" | sha256sum | cut -d' ' -f1)
-            echo "New SHA256: $NEW_SHA"
-            sed -i "s|download/${CURRENT_TAG}/|download/${BREW_RELEASE}/|" "$BST_FILE"
-            sed -i "s|ref: [a-f0-9]\{64\}|ref: ${NEW_SHA}|" "$BST_FILE"
+
+            NEW_SHA_X86=$(curl -fsSL "https://github.com/ublue-os/packages/releases/download/${BREW_RELEASE}/homebrew-x86_64.tar.zst" | sha256sum | cut -d' ' -f1)
+            echo "New x86_64 SHA256: $NEW_SHA_X86"
+            sed -i "s|download/${CURRENT_TAG}/|download/${BREW_RELEASE}/|" "$BST_FILE_X86"
+            sed -i "s|ref: [a-f0-9]\{64\}|ref: ${NEW_SHA_X86}|" "$BST_FILE_X86"
+
+            NEW_SHA_ARM=$(curl -fsSL "https://github.com/ublue-os/packages/releases/download/${BREW_RELEASE}/homebrew-aarch64.tar.zst" | sha256sum | cut -d' ' -f1)
+            echo "New aarch64 SHA256: $NEW_SHA_ARM"
+            sed -i "s|download/${CURRENT_TAG}/|download/${BREW_RELEASE}/|" "$BST_FILE_ARM"
+            sed -i "s|ref: [a-f0-9]\{64\}|ref: ${NEW_SHA_ARM}|" "$BST_FILE_ARM"
+
             CHANGED=true
           fi
 
@@ -322,7 +329,7 @@ jobs:
           Automated check for new releases of tarball-sourced dependencies.
 
           ### Checked sources
-          - `elements/bluefin/brew-tarball.bst` -- ublue-os/packages
+          - `elements/bluefin/brew-tarball-{x86_64,aarch64}.bst` -- ublue-os/packages
           - `elements/bluefin/wallpapers.bst` -- ublue-os/artwork
           - `elements/bluefin/1password-cli-{x86_64,aarch64}.bst` -- 1Password CLI
           - `elements/bluefin/1password-{x86_64,aarch64}.bst` -- 1Password desktop
